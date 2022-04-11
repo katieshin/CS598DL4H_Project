@@ -1,6 +1,5 @@
 import os
 import pandas as pd
-import sys
 from icd9cms.icd9 import search
 
 DATA_PATH = ".\\data"
@@ -30,16 +29,9 @@ for f in ['DIAGNOSES_ICD.csv']:
             data_dict[patient][visit] = list()
         data_dict[patient][visit].append(code_set)
 
-
-code_map = dict()
-rev_code_map = dict()
-for idx, code in enumerate(sorted(unq_codes)):
-    code_map[code] = idx + 1
-    rev_code_map[idx + 1] = code
-
 data_codes = list()
 data_cat = list()
-for i_patient, patient in enumerate(data_dict.keys()):
+for patient in data_dict.keys():
     patient_list = list()
     cat_list = list()
     if len(data_dict[patient].keys()) < 2:
@@ -73,13 +65,13 @@ max_num_cats = max(num_cats)
 
 print('number of patients', num_patients)
 print('number of visits', sum(num_visits))
-print('average number of visits', sum(num_visits) / len(num_visits))
+print('average number of visits', "{:.3f}".format(float(sum(num_visits)) / len(num_visits)))
 print()
 print('number of unique codes', len(unq_codes))
-print('average number of codes per visit', sum(num_codes) / len(num_codes))
+print('average number of codes per visit', "{:.2f}".format(float(sum(num_codes)) / len(num_codes)))
 print('max number of codes per visit', max_num_codes)
 print()
 print('number of unique categories', len(unq_cats))
-print('average number of categories per visit', sum(num_cats) / len(num_cats))
+print('average number of categories per visit', "{:.2f}".format(float(sum(num_cats)) / len(num_cats)))
 print('max number of categories per visit', max_num_cats)
 print()
