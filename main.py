@@ -15,7 +15,6 @@ random.seed(seed)
 np.random.seed(seed)
 torch.manual_seed(seed)
 os.environ["PYTHONHASHSEED"] = str(seed)
-DATA_PATH = "./data"
 
 
 class CustomDataset(Dataset):
@@ -24,14 +23,14 @@ class CustomDataset(Dataset):
         unq_codes = set()
         unq_cats = set()
 
-        df = pd.read_csv(os.path.join(DATA_PATH, 'DIAGNOSES_ICD.csv'))
+        df = pd.read_csv('DIAGNOSES_ICD.csv')
         data_dict = dict()
         for row in df.to_dict('records'):
             try:
                 patient = int(row['SUBJECT_ID'])
                 visit = int(row['HADM_ID'])
                 code = row['ICD9_CODE']
-                if (len(code) < 5):
+                if len(code) < 5:
                     code += '0' * (5 - len(code))
 
                 code_set = (int(row['SEQ_NUM']), code)  # allows for sorting
