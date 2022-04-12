@@ -1,9 +1,13 @@
+import json
 import os
 import pandas as pd
 import sys
 from icd9cms.icd9 import search
 
 DATA_PATH = ".\\data"
+
+with open(os.path.join(DATA_PATH, 'icd9_map.json')) as fp:
+    icd9_map = json.load(fp)
 
 cat_idx = 2
 
@@ -19,9 +23,11 @@ for f in ['DIAGNOSES_ICD.csv']:
         try:
             patient = int(row['SUBJECT_ID'])
             visit = int(row['HADM_ID'])
-            code = row['ICD9_CODE'] if row['ICD9_CODE'] != '71970' else '7197'
+            # code = row['ICD9_CODE'] if row['ICD9_CODE'] != '71970' else '7197'
+            code = row['ICD9_CODE']
             code_set = (int(row['SEQ_NUM']), code)  # allows for sorting
         except Exception as e:
+            # print(row['ICD9_CODE'], e)
             continue
 
         if patient not in data_dict.keys():
@@ -49,13 +55,16 @@ for i_patient, patient in enumerate(data_dict.keys()):
         cats = list()
         for seq, code in sorted(data_dict[patient][visit]):
             try:
-                cat = search(code).ancestors()[-2]
+                mod_code = code if code != '71970' else '7197'
+                # cat = search(mod_code).ancestors()[-2]
+                cat = icd9_map[code[:3] if code[0] != 'E' else code[:4]]
+
                 unq_codes.add(code)
                 codes.append(code)
                 unq_cats.add(cat)
                 cats.append(cat)
             except Exception as e:
-                print(code, type(code), e)
+                print(code, search(code).ancestors()[-2], e)
                 continue
         patient_list.append(codes)
         cat_list.append(list(set(cats)))
@@ -83,3 +92,4 @@ print('number of unique categories', len(unq_cats))
 print('average number of categories per visit', sum(num_cats) / len(num_cats))
 print('max number of categories per visit', max_num_cats)
 print()
+print(sorted(unq_cats))
