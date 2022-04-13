@@ -19,7 +19,7 @@ np.random.seed(seed)
 torch.manual_seed(seed)
 os.environ["PYTHONHASHSEED"] = str(seed)
 
-DATA_PATH = ".\\data"
+DATA_PATH = "../CS598DL4H_Project/data"
 
 
 class CustomDataset(Dataset):
@@ -85,17 +85,15 @@ class CustomDataset(Dataset):
         self.idx2code = sorted(unq_codes)
         self.code2idx = {}
         for idx, code in enumerate(self.idx2code):
-            self.code2idx[code] = idx+1
+            self.code2idx[code] = idx
 
         self.idx2category = sorted(unq_cats)
         self.category2idx = {}
         for idx, cat in enumerate(self.idx2category):
-            self.category2idx[cat] = idx+1
+            self.category2idx[cat] = idx
 
         self.x = data_codes
         self.y = data_categories
-
-        return
 
     def __len__(self):
         return len(self.x)
@@ -123,11 +121,12 @@ class RNN(nn.Module):
         self.num_categories = num_categories
         self.emb_dim = emb_dim
 
-        self.embedding = nn.Embedding(num_codes, emb_dim)
+        self.embedding = nn.Embedding(self.num_codes, self.emb_dim)
         # self.rnn = nn.GRU(emb_dim, hidden_size=emb_dim, batch_first=True)
         # self.rev_rnn = nn.GRU(emb_dim, hidden_size=emb_dim, batch_first=True)
-        self.lstm = nn.LSTM(emb_dim, hidden_size=emb_dim, batch_first=True)
-        self.fc = nn.Linear(emb_dim, num_categories)
+        self.lstm = nn.LSTM(self.emb_dim, hidden_size=self.emb_dim, batch_first=True)
+        self.rev_lstm = nn.LSTM(self.emb_dim, hidden_size=self.emb_dim, batch_first=True)
+        self.fc = nn.Linear(self.emb_dim, self.num_categories)
         self.sigmoid = nn.Sigmoid()
 
     def sum_embeddings_with_mask(self, x, masks):
@@ -135,11 +134,19 @@ class RNN(nn.Module):
         out = torch.sum(x, 2)
         return out
 
+        # unsqueezed_masks = torch.unsqueeze(masks, dim=3)
+        # unsqueezed_masks = unsqueezed_masks.expand(unsqueezed_masks.shape[0], unsqueezed_masks.shape[1],
+        #                                            unsqueezed_masks.shape[2], x.shape[3])
+        # x_masked = x * unsqueezed_masks
+        # sum_embeddings = torch.sum(x_masked, dim=2)
+        #
+        # return sum_embeddings
+
     def get_last_visit(self, hidden_states, masks):
         # print(masks.shape, hidden_states.shape)
         try:
             s_masks = torch.sum(masks, 2)
-            s_masks[s_masks>0] = 1
+            s_masks[s_masks > 0] = 1
             z_masks = torch.sum(s_masks, 1)-1
             mask = torch.LongTensor(*hidden_states.shape[:2])
             mask.zero_()
@@ -158,10 +165,17 @@ class RNN(nn.Module):
 
             # print(masks.shape, hidden_states.shape)
             raise e
-
         return out
 
-    def forward(self, x, masks):
+        # masks_sum = torch.sum(masks, dim=2)
+        # masks_sum_bool = masks_sum > 0
+        # latest_visits = torch.sum(masks_sum_bool, dim=1)
+        # latest_visits = latest_visits - 1
+        #
+        # out = hidden_states[list(range(hidden_states.shape[0])), latest_visits]
+        # return out
+
+    def forward(self, x, masks, rev_x, rev_masks):
         """
         Arguments:
             x: the diagnosis sequence of shape (batch_size, # visits, # diagnosis codes)
@@ -186,6 +200,26 @@ class RNN(nn.Module):
         # print(probs.shape)
         return probs
 
+        # # 1. Pass the sequence through the embedding layer;
+        # x = self.embedding(x)
+        # # 2. Sum the embeddings for each diagnosis code up for a visit of a patient.
+        # x = self.sum_embeddings_with_mask(x, masks)
+        #
+        # # 3. Pass the embeddings through the RNN layer;
+        # output, _ = self.lstm(x)
+        # # 4. Obtain the hidden state at the last visit.
+        # true_h_n = self.get_last_visit(output, masks)
+        #
+        # rev_x = self.embedding(rev_x)
+        # rev_x = self.sum_embeddings_with_mask(rev_x, rev_masks)
+        # output, _ = self.rev_lstm(rev_x)
+        # true_h_n_rev = self.get_last_visit(output, rev_masks)
+        #
+        # # 6. Pass the hidden state through the linear and activation layers.
+        # logits = self.fc(torch.cat([true_h_n, true_h_n_rev], 1))
+        # probs = self.sigmoid(logits)
+        # return probs
+
 
 def collate_fn(data, **kwargs):
     sequences, labels = zip(*data)
@@ -200,7 +234,7 @@ def collate_fn(data, **kwargs):
     rev_x = torch.zeros((num_patients, max_num_visits, max_num_codes), dtype=torch.long)
     masks = torch.zeros((num_patients, max_num_visits, max_num_codes), dtype=torch.bool)
     rev_masks = torch.zeros((num_patients, max_num_visits, max_num_codes), dtype=torch.bool)
-    y = torch.zeros((num_patients, max_num_categories), dtype=torch.long)
+    y = torch.zeros((num_patients, max_num_categories), dtype=torch.float)
 
     torch.set_printoptions(profile="full")
     for i_patient, patient in enumerate(sequences):
@@ -235,7 +269,7 @@ def load_data(train_dataset, val_dataset, test_dataset, collate_fn, **kwargs):
     batch_size = kwargs['batch_size']
     collate = partial(collate_fn, *[], **kwargs)
     train_loader = DataLoader(train_dataset, batch_size=batch_size, collate_fn=collate, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, collate_fn=collate)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, collate_fn=collate, shuffle=False)
     test_loader = DataLoader(test_dataset, batch_size=batch_size, collate_fn=collate)
     return train_loader, val_loader, test_loader
 
@@ -250,9 +284,9 @@ def train(model, train_loader, val_loader, n_epochs):
         train_loss = 0
         for x, masks, rev_x, rev_masks, y in train_loader:
             optimizer.zero_grad()
-            y_hat = model(x, masks)
+            y_hat = model(x, masks, rev_x, rev_masks)
 
-            loss = criterion(y_hat, y.float())
+            loss = criterion(y_hat, y)
             loss.backward()
             optimizer.step()
 
