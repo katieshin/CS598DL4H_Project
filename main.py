@@ -229,12 +229,13 @@ def collate_fn(data, **kwargs):
     max_num_visits = kwargs['max_num_visits']
     max_num_codes = kwargs['max_num_codes']
     max_num_categories = kwargs['max_num_categories']
+    category2idx = kwargs['category2idx']
 
     x = torch.zeros((num_patients, max_num_visits, max_num_codes), dtype=torch.long)
     rev_x = torch.zeros((num_patients, max_num_visits, max_num_codes), dtype=torch.long)
     masks = torch.zeros((num_patients, max_num_visits, max_num_codes), dtype=torch.bool)
     rev_masks = torch.zeros((num_patients, max_num_visits, max_num_codes), dtype=torch.bool)
-    y = torch.zeros((num_patients, max_num_categories), dtype=torch.float)
+    y = torch.zeros((num_patients, len(category2idx)), dtype=torch.float)
 
     torch.set_printoptions(profile="full")
     for i_patient, patient in enumerate(sequences):
@@ -248,7 +249,7 @@ def collate_fn(data, **kwargs):
 
     for i_patient, patient in enumerate(labels):
         for k_code, category in enumerate(patient[-1]):
-            y[i_patient][k_code] = kwargs['category2idx'][category]
+            y[i_patient][category2idx[category]] = 1
 
     return x, masks, rev_x, rev_masks, y
 
@@ -323,6 +324,6 @@ if __name__ == '__main__':
     train_loader, val_loader, test_loader = load_data(train_dataset, val_dataset, test_dataset, collate_fn, **params)
 
     # model = nn.RNN(dataset.max_num_codes, 128, num_layers=2, dropout=0.5, nonlinearity='tanh', bidirectional=True, batch_first=True)
-    model = RNN(len(dataset.idx2code), dataset.max_num_categories, 128)
+    model = RNN(len(dataset.idx2code), len(dataset.category2idx), 256)
     print(model)
     train(model, train_loader, val_loader, params['num_epochs'])
