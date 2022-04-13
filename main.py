@@ -3,6 +3,7 @@ import numpy as np
 import os
 import pandas as pd
 import random
+import sys
 import torch
 import torch.nn as nn
 
@@ -55,19 +56,20 @@ class CustomDataset(Dataset):
             cat_list = list()
             if len(data_dict[patient].keys()) < 2:
                 continue  # filter out patients with less than two visits
-            for j_visit, visit in enumerate(sorted(data_dict[patient].keys())):
+            sorted_visits = sorted(data_dict[patient].keys())
+            for visit in sorted_visits[:-1]:
                 codes = list()
-                cats = list()
-                sorted_visits = sorted(data_dict[patient][visit])
-                for seq, code in sorted_visits[:-1]:
+                for seq, code in sorted(data_dict[patient][visit]):
                     unq_codes.add(code)
                     codes.append(code)
-                for seq, code in sorted_visits[1:]:
-                    cat = icd9_map[code[:3] if code[0] != 'E' else code[:4]]
-                    unq_cats.add(cat)
-                    cats.append(cat)
                 patient_list.append(codes)
-                cat_list.append(list(set(cats)))
+
+            cats = list()
+            for seq, code in sorted(data_dict[patient][sorted_visits[-1]]):
+                cat = icd9_map[code[:3] if code[0] != 'E' else code[:4]]
+                unq_cats.add(cat)
+                cats.append(cat)
+            cat_list.append(list(set(cats)))
 
             data_codes.append(patient_list)
             data_categories.append(cat_list)
@@ -146,13 +148,13 @@ class RNN(nn.Module):
             out = torch.sum(hidden_states, 1)
         except Exception as e:
             # print(hidden_states)
-            torch.set_printoptions(profile="full")
+            # torch.set_printoptions(profile="full")
             s_masks = torch.sum(masks, 2)
-            print(masks[12])
+            # print(masks[12])
             s_masks[s_masks>0] = 1
-            print(s_masks[12])
+            # print(s_masks[12])
             z_masks = torch.sum(s_masks, 1)-1
-            print(z_masks)
+            # print(z_masks)
 
             # print(masks.shape, hidden_states.shape)
             raise e
@@ -198,8 +200,9 @@ def collate_fn(data, **kwargs):
     rev_x = torch.zeros((num_patients, max_num_visits, max_num_codes), dtype=torch.long)
     masks = torch.zeros((num_patients, max_num_visits, max_num_codes), dtype=torch.bool)
     rev_masks = torch.zeros((num_patients, max_num_visits, max_num_codes), dtype=torch.bool)
-    y = torch.zeros((num_patients, max_num_visits, max_num_categories), dtype=torch.long)
+    y = torch.zeros((num_patients, max_num_categories), dtype=torch.long)
 
+    torch.set_printoptions(profile="full")
     for i_patient, patient in enumerate(sequences):
         num_visits = len(patient)
         for j_visit, visit in enumerate(patient):
@@ -210,10 +213,9 @@ def collate_fn(data, **kwargs):
                 rev_masks[i_patient][num_visits - 1 - j_visit][k_code] = 1
 
     for i_patient, patient in enumerate(labels):
-        for j_visit, visit in enumerate(patient):
-            for k_code, category in enumerate(visit):
-                y[i_patient][j_visit][k_code] = kwargs['category2idx'][category]
-    # print(x.shape, y.shape)
+        for k_code, category in enumerate(patient[-1]):
+            y[i_patient][k_code] = kwargs['category2idx'][category]
+
     return x, masks, rev_x, rev_masks, y
 
 
@@ -250,10 +252,7 @@ def train(model, train_loader, val_loader, n_epochs):
             optimizer.zero_grad()
             y_hat = model(x, masks)
 
-            # print(y_hat)
-            # print(y[:,-1,:])
-
-            loss = criterion(y_hat, y[:,-1,:].float())
+            loss = criterion(y_hat, y.float())
             loss.backward()
             optimizer.step()
 
