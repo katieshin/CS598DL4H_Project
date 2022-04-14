@@ -4,6 +4,15 @@ import pandas as pd
 from icd9cms.icd9 import search
 
 DATA_PATH = ".\\data"
+# https://www.overleaf.com/project/624e28fb146f8048c8dc94fe
+# https://ftp.cdc.gov/pub/Health_Statistics/NCHS/Publications/ICD9-CM/2011/
+# http://www.icd9data.com/
+#
+#
+
+
+
+
 
 with open(os.path.join(DATA_PATH, 'icd9_map.json')) as fp:
     icd9_map = json.load(fp)
@@ -74,6 +83,7 @@ max_num_cats = max(num_cats)
 
 print('number of patients', num_patients)
 print('number of visits', sum(num_visits))
+print('max number  of visits', max_num_visits)
 print('average number of visits', "{:.3f}".format(float(sum(num_visits)) / len(num_visits)))
 print()
 print('number of unique codes', len(unq_codes))
