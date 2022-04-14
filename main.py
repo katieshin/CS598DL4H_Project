@@ -11,6 +11,9 @@ from functools import partial
 from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
 from torch.utils.data.dataset import random_split
+from torch.autograd import Variable
+
+from sklearn.metrics import accuracy_score, precision_recall_fscore_support, label_ranking_average_precision_score, coverage_error, roc_auc_score
 
 # set seed
 seed = 24
@@ -134,48 +137,18 @@ class RNN(nn.Module):
         out = torch.sum(x, 2)
         return out
 
-        # unsqueezed_masks = torch.unsqueeze(masks, dim=3)
-        # unsqueezed_masks = unsqueezed_masks.expand(unsqueezed_masks.shape[0], unsqueezed_masks.shape[1],
-        #                                            unsqueezed_masks.shape[2], x.shape[3])
-        # x_masked = x * unsqueezed_masks
-        # sum_embeddings = torch.sum(x_masked, dim=2)
-        #
-        # return sum_embeddings
-
     def get_last_visit(self, hidden_states, masks):
-        # print(masks.shape, hidden_states.shape)
-        try:
-            s_masks = torch.sum(masks, 2)
-            s_masks[s_masks > 0] = 1
-            z_masks = torch.sum(s_masks, 1)-1
-            mask = torch.LongTensor(*hidden_states.shape[:2])
-            mask.zero_()
-            mask.scatter_(1, z_masks.view(-1, 1), 1)
-            hidden_states[mask == 0] = 0
-            out = torch.sum(hidden_states, 1)
-        except Exception as e:
-            # print(hidden_states)
-            # torch.set_printoptions(profile="full")
-            s_masks = torch.sum(masks, 2)
-            # print(masks[12])
-            s_masks[s_masks>0] = 1
-            # print(s_masks[12])
-            z_masks = torch.sum(s_masks, 1)-1
-            # print(z_masks)
-
-            # print(masks.shape, hidden_states.shape)
-            raise e
+        s_masks = torch.sum(masks, 2)
+        s_masks[s_masks > 0] = 1
+        z_masks = torch.sum(s_masks, 1)-1
+        mask = torch.LongTensor(*hidden_states.shape[:2])
+        mask.zero_()
+        mask.scatter_(1, z_masks.view(-1, 1), 1)
+        hidden_states[mask == 0] = 0
+        out = torch.sum(hidden_states, 1)
         return out
 
-        # masks_sum = torch.sum(masks, dim=2)
-        # masks_sum_bool = masks_sum > 0
-        # latest_visits = torch.sum(masks_sum_bool, dim=1)
-        # latest_visits = latest_visits - 1
-        #
-        # out = hidden_states[list(range(hidden_states.shape[0])), latest_visits]
-        # return out
-
-    def forward(self, x, masks, rev_x, rev_masks):
+    def forward(self, x, masks):
         """
         Arguments:
             x: the diagnosis sequence of shape (batch_size, # visits, # diagnosis codes)
@@ -184,10 +157,6 @@ class RNN(nn.Module):
         Outputs:
             probs: probabilities of shape (batch_size)
         """
-        batch_size = x.shape[0]
-
-        # print(self.num_codes, x.shape, masks.shape)
-
         # 1. Pass the sequence through the embedding layer;
         x = self.embedding(x)
         # 2. Sum the embeddings for each diagnosis code up for a visit of a patient.
@@ -275,32 +244,75 @@ def load_data(train_dataset, val_dataset, test_dataset, collate_fn, **kwargs):
     return train_loader, val_loader, test_loader
 
 
-def train(model, train_loader, val_loader, n_epochs):
-    optimizer = torch.optim.Adam(model.parameters(), lr=5e-4, weight_decay=1e-4)  # TODO: replace
-    criterion = nn.BCELoss()  # TODO: replace
-    eval_model = None  # TODO: replace
+def eval_model(model, val_loader):
+    model.eval()
+    y_pred = torch.LongTensor()
+    y_true = torch.LongTensor()
+    model.eval()
+    for x, masks, rev_x, rev_masks, y in val_loader:
+        y_hat = model(x, masks)
+        y_hat = (y_hat > 0.5).int()
+        y_pred = torch.cat((y_pred,  y_hat.detach().to('cpu')), dim=0)
+        y_true = torch.cat((y_true, y.detach().to('cpu')), dim=0)
 
+    # ovr and ovo appear to give the same results for our model
+    return roc_auc_score(y_true, y_pred, multi_class='ovr', average='micro')
+
+
+def train(model, train_loader, val_loader, n_epochs):
+    # os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+    # model = torch.nn.DataParallel(model)
+    optimizer = torch.optim.Adam(model.parameters(), lr=5e-4, weight_decay=1e-4)
+    criterion = nn.BCELoss()
+
+    torch.autograd.set_detect_anomaly(True)
+
+    y_pred = torch.LongTensor()
+    y_true = torch.LongTensor()
     for epoch in range(n_epochs):
         model.train()
         train_loss = 0
         for x, masks, rev_x, rev_masks, y in train_loader:
             optimizer.zero_grad()
-            y_hat = model(x, masks, rev_x, rev_masks)
+            y_hat = model(x, masks)
+
+            # print(y_hat.get_device())
+            # print(y.get_device())
 
             loss = criterion(y_hat, y)
+            # loss = Variable(loss, requires_grad=True)
+            # loss = loss.detach().to('cpu')
+            # print(loss.get_device())
             loss.backward()
             optimizer.step()
 
             train_loss += loss.item()
+
+            y_pred_tmp = (y_hat > 0.5).int()
+            y_pred = torch.cat((y_pred, y_pred_tmp.detach().to('cpu')), dim=0)
+            y_true = torch.cat((y_true, y.detach().to('cpu')), dim=0)
+
         train_loss = train_loss / len(train_loader)
         print('Epoch: {} \t Training Loss: {:.6f}'.format(epoch + 1, train_loss))
-        # p, r, f, roc_auc = eval_model(model, val_loader)
-        # print('Epoch: {} \t Validation p: {:.2f}, r:{:.2f}, f: {:.2f}, roc_auc: {:.2f}'
-        # .format(epoch + 1, p, r, f, roc_auc))
+        # print(accuracy_score(y_true, y_pred))
+        # print(label_ranking_average_precision_score(y_true, y_pred))
+        # print(roc_auc_score(y_true, y_pred, multi_class='ovo', average='micro'))
+        # print(roc_auc_score(y_true, y_pred, multi_class='ovr', average='micro'))
+        roc_auc = eval_model(model, val_loader)
+        print('Epoch: {} \t Validation roc_auc: {:.2f}'.format(epoch + 1, roc_auc))
 
 
-def test():
-    pass
+def test(model, test_loader):
+    model.eval()
+    y_pred = torch.LongTensor()
+    y_true = torch.LongTensor()
+    model.eval()
+    for x, masks, rev_x, rev_masks, y in test_loader:
+        y_hat = model(x, masks)
+        y_hat = (y_hat > 0.5).int()
+        y_pred = torch.cat((y_pred,  y_hat.detach().to('cpu')), dim=0)
+        y_true = torch.cat((y_true, y.detach().to('cpu')), dim=0)
+    return roc_auc_score(y_true, y_pred, multi_class='ovr', average='micro')
 
 
 if __name__ == '__main__':
@@ -323,7 +335,8 @@ if __name__ == '__main__':
 
     train_loader, val_loader, test_loader = load_data(train_dataset, val_dataset, test_dataset, collate_fn, **params)
 
-    # model = nn.RNN(dataset.max_num_codes, 128, num_layers=2, dropout=0.5, nonlinearity='tanh', bidirectional=True, batch_first=True)
     model = RNN(len(dataset.idx2code), len(dataset.category2idx), 256)
     print(model)
     train(model, train_loader, val_loader, params['num_epochs'])
+    roc_auc = test(model, test_loader)
+    print('Test roc_auc: {:.2f}'.format(roc_auc))
