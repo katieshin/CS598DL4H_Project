@@ -244,6 +244,40 @@ def load_data(train_dataset, val_dataset, test_dataset, collate_fn, **kwargs):
     return train_loader, val_loader, test_loader
 
 
+def visit_level_precision(k, y_true, y_pred):
+    # get top k predictions for each patient
+    top_k_val, top_k_ind = torch.topk(y_pred, k, dim=1, sorted=False)
+
+    # num = determine which of top k are correct predictions
+    mask = torch.zeros(y_pred.shape).scatter_(1, top_k_ind, top_k_val)
+    mask = (mask > 0.5).float()
+    num = torch.sum(mask * y_true, dim=1)
+
+    # denom = determine which is smaller (k or number of categories in y_true)
+    denom = torch.sum(y_true, 1)
+    denom[denom > k] = k
+    # precision num/denom
+    # return avg(precision)
+    return torch.mean(num/denom)
+
+
+def code_level_accuracy(k, y_true, y_pred):
+    # get top k predictions for each patient
+    top_k_val, top_k_ind = torch.topk(y_pred, k, dim=1, sorted=False)
+
+    # determine which of top k are correct predictions
+    pred_mask = torch.zeros(y_pred.shape).scatter_(1, top_k_ind, top_k_val)
+    mask = (pred_mask > 0.5).float()
+    num = torch.sum(mask * y_true, dim=1)
+
+    # determine number of labels predicted (p > 0.5)
+    denom = torch.sum((pred_mask > 0.5).float(), dim=1)
+    denom[denom == 0] = 1  # can't divide by zero
+    # accuracy = num/denom
+    # return avg(accuracy)
+    return torch.mean(num/denom)
+
+
 def eval_model(model, val_loader):
     model.eval()
     y_pred = torch.LongTensor()
@@ -251,12 +285,15 @@ def eval_model(model, val_loader):
     model.eval()
     for x, masks, rev_x, rev_masks, y in val_loader:
         y_hat = model(x, masks)
-        y_hat = (y_hat > 0.5).int()
+        # y_hat = (y_hat > 0.5).int()
         y_pred = torch.cat((y_pred,  y_hat.detach().to('cpu')), dim=0)
         y_true = torch.cat((y_true, y.detach().to('cpu')), dim=0)
 
     # ovr and ovo appear to give the same results for our model
-    return roc_auc_score(y_true, y_pred, multi_class='ovr', average='micro')
+    roc_auc = roc_auc_score(y_true, y_pred, multi_class='ovr', average='micro')
+    visit_lvl = visit_level_precision(5, y_true, y_pred)
+    code_lvl = code_level_accuracy(5, y_true, y_pred)
+    return roc_auc, visit_lvl, code_lvl
 
 
 def train(model, train_loader, val_loader, n_epochs):
@@ -288,8 +325,8 @@ def train(model, train_loader, val_loader, n_epochs):
 
             train_loss += loss.item()
 
-            y_pred_tmp = (y_hat > 0.5).int()
-            y_pred = torch.cat((y_pred, y_pred_tmp.detach().to('cpu')), dim=0)
+            # y_pred_tmp = (y_hat > 0.5).int()
+            y_pred = torch.cat((y_pred, y_hat.detach().to('cpu')), dim=0)
             y_true = torch.cat((y_true, y.detach().to('cpu')), dim=0)
 
         train_loss = train_loss / len(train_loader)
@@ -298,8 +335,10 @@ def train(model, train_loader, val_loader, n_epochs):
         # print(label_ranking_average_precision_score(y_true, y_pred))
         # print(roc_auc_score(y_true, y_pred, multi_class='ovo', average='micro'))
         # print(roc_auc_score(y_true, y_pred, multi_class='ovr', average='micro'))
-        roc_auc = eval_model(model, val_loader)
-        print('Epoch: {} \t Validation roc_auc: {:.2f}'.format(epoch + 1, roc_auc))
+        # print(visit_level_precision(5, y_true, y_pred))
+        # print(code_level_accuracy(5, y_true, y_pred))
+        roc_auc, visit_lvl, code_lvl = eval_model(model, val_loader)
+        print('Epoch: {} \t Validation roc_auc: {:.2f}, visit_lvl: {:.4f}, code_lvl: {:.4f}'.format(epoch + 1, roc_auc, visit_lvl, code_lvl))
 
 
 def test(model, test_loader):
@@ -309,10 +348,17 @@ def test(model, test_loader):
     model.eval()
     for x, masks, rev_x, rev_masks, y in test_loader:
         y_hat = model(x, masks)
-        y_hat = (y_hat > 0.5).int()
+        # y_hat = (y_hat > 0.5).int()
         y_pred = torch.cat((y_pred,  y_hat.detach().to('cpu')), dim=0)
         y_true = torch.cat((y_true, y.detach().to('cpu')), dim=0)
-    return roc_auc_score(y_true, y_pred, multi_class='ovr', average='micro')
+    roc_auc = roc_auc_score(y_true, y_pred, multi_class='ovr', average='micro')
+
+    visits = []
+    codes = []
+    for k in [5, 10, 15, 20, 25, 30]:
+        visits.append((k, visit_level_precision(k, y_true, y_pred)))
+        codes.append((k, code_level_accuracy(k, y_true, y_pred)))
+    return roc_auc, visits, codes
 
 
 if __name__ == '__main__':
@@ -338,5 +384,9 @@ if __name__ == '__main__':
     model = RNN(len(dataset.idx2code), len(dataset.category2idx), 256)
     print(model)
     train(model, train_loader, val_loader, params['num_epochs'])
-    roc_auc = test(model, test_loader)
+    roc_auc, visit_prec, code_acc = test(model, test_loader)
     print('Test roc_auc: {:.2f}'.format(roc_auc))
+    visit_str = ' '.join(['{:.2f}@{}'.format(v, k) for k, v in visit_prec])
+    print('Test visit-level precision@k: {}'.format(visit_str))
+    code_str = ' '.join(['{:.2f}@{}'.format(v, k) for k, v in code_acc])
+    print('Test code-level accuracy@k: {}'.format(code_str))
