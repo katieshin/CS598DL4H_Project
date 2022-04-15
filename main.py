@@ -1,15 +1,14 @@
-import json
 import numpy as np
 import os
-import pandas as pd
 import random
 import sys
 import torch
 import torch.nn as nn
 
+from custom_dataset import CustomDataset
+from rnn import RNN
 from functools import partial
 from torch.utils.data import DataLoader
-from torch.utils.data import Dataset
 from torch.utils.data.dataset import random_split
 from torch.autograd import Variable
 
@@ -21,155 +20,6 @@ random.seed(seed)
 np.random.seed(seed)
 torch.manual_seed(seed)
 os.environ["PYTHONHASHSEED"] = str(seed)
-
-DATA_PATH = "../CS598DL4H_Project/data"
-
-
-class CustomDataset(Dataset):
-    def __init__(self):
-
-        with open(os.path.join(DATA_PATH, 'icd9_map.json')) as fp:
-            icd9_map = json.load(fp)
-
-        # compile data
-        unq_codes = set()
-        unq_cats = set()
-
-        data_dict = dict()
-        for f in ['DIAGNOSES_ICD.csv']:
-            df = pd.read_csv(os.path.join(DATA_PATH, f), dtype=str)
-            for row in df.to_dict('records'):
-                try:
-                    patient = int(row['SUBJECT_ID'])
-                    visit = int(row['HADM_ID'])
-                    code_set = (int(row['SEQ_NUM']), row['ICD9_CODE'])  # allows for sorting
-                except Exception as e:
-                    continue
-
-                if patient not in data_dict.keys():
-                    data_dict[patient] = dict()
-                if visit not in data_dict[patient].keys():
-                    data_dict[patient][visit] = list()
-                data_dict[patient][visit].append(code_set)
-
-        data_codes = list()
-        data_categories = list()
-        for i_patient, patient in enumerate(data_dict.keys()):
-            patient_list = list()
-            cat_list = list()
-            if len(data_dict[patient].keys()) < 2:
-                continue  # filter out patients with less than two visits
-            sorted_visits = sorted(data_dict[patient].keys())
-            for visit in sorted_visits[:-1]:
-                codes = list()
-                for seq, code in sorted(data_dict[patient][visit]):
-                    unq_codes.add(code)
-                    codes.append(code)
-                patient_list.append(codes)
-
-            cats = list()
-            for seq, code in sorted(data_dict[patient][sorted_visits[-1]]):
-                cat = icd9_map[code[:3] if code[0] != 'E' else code[:4]]
-                unq_cats.add(cat)
-                cats.append(cat)
-            cat_list.append(list(set(cats)))
-
-            data_codes.append(patient_list)
-            data_categories.append(cat_list)
-
-        num_visits = [len(patient) for patient in data_codes]
-        num_codes = [len(visit) for patient in data_codes for visit in patient]
-        num_categories = [len(visit) for patient in data_categories for visit in patient]
-        self.num_patients = len(data_codes)
-        self.max_num_visits = max(num_visits)
-        self.max_num_codes = max(num_codes)
-        self.max_num_categories = max(num_categories)
-
-        self.idx2code = sorted(unq_codes)
-        self.code2idx = {}
-        for idx, code in enumerate(self.idx2code):
-            self.code2idx[code] = idx
-
-        self.idx2category = sorted(unq_cats)
-        self.category2idx = {}
-        for idx, cat in enumerate(self.idx2category):
-            self.category2idx[cat] = idx
-
-        self.x = data_codes
-        self.y = data_categories
-
-    def __len__(self):
-        return len(self.x)
-
-    def __getitem__(self, index):
-        return self.x[index], self.y[index]
-
-
-class RNN(nn.Module):
-    def __init__(self, num_codes, num_categories, emb_dim):
-        super().__init__()
-        """
-        TODO: 
-            1. Define the embedding layer using `nn.Embedding`. Set `embDimSize` to 128.
-            2. Define the RNN using `nn.GRU()`; Set `hidden_size` to 128. Set `batch_first` to True.
-            2. Define the RNN for the reverse direction using `nn.GRU()`;
-               Set `hidden_size` to 128. Set `batch_first` to True.
-            3. Define the linear layers using `nn.Linear()`; Set `in_features` to 256, and `out_features` to 1.
-            4. Define the final activation layer using `nn.Sigmoid().
-
-        Arguments:
-            num_codes: total number of diagnosis codes
-        """
-        self.num_codes = num_codes
-        self.num_categories = num_categories
-        self.emb_dim = emb_dim
-
-        self.embedding = nn.Embedding(self.num_codes, self.emb_dim)
-        # self.rnn = nn.GRU(emb_dim, hidden_size=emb_dim, batch_first=True)
-        # self.rev_rnn = nn.GRU(emb_dim, hidden_size=emb_dim, batch_first=True)
-        self.lstm = nn.LSTM(self.emb_dim, hidden_size=self.emb_dim, batch_first=True)
-        self.rev_lstm = nn.LSTM(self.emb_dim, hidden_size=self.emb_dim, batch_first=True)
-        self.fc = nn.Linear(self.emb_dim, self.num_categories)
-        self.sigmoid = nn.Sigmoid()
-
-    def sum_embeddings_with_mask(self, x, masks):
-        x[masks == 0] = 0
-        out = torch.sum(x, 2)
-        return out
-
-    def get_last_visit(self, hidden_states, masks):
-        s_masks = torch.sum(masks, 2)
-        s_masks[s_masks > 0] = 1
-        z_masks = torch.sum(s_masks, 1)-1
-        mask = torch.zeros(*hidden_states.shape[:2]).cuda()
-        # mask.zero_()
-        mask.scatter_(1, z_masks.view(-1, 1), 1)
-        states = hidden_states.clone()
-        states[mask == 0] = 0
-        out = torch.sum(states, 1)
-        return out
-
-    def forward(self, x, masks):
-        """
-        Arguments:
-            x: the diagnosis sequence of shape (batch_size, # visits, # diagnosis codes)
-            masks: the padding masks of shape (batch_size, # visits, # diagnosis codes)
-
-        Outputs:
-            probs: probabilities of shape (batch_size)
-        """
-        # 1. Pass the sequence through the embedding layer;
-        x = self.embedding(x)
-        # 2. Sum the embeddings for each diagnosis code up for a visit of a patient.
-        x = self.sum_embeddings_with_mask(x, masks)
-
-        # 3. Pass the embeddings through the RNN layer;
-        output, _ = self.lstm(x)
-
-        logits = self.fc(self.get_last_visit(output.cuda(), masks.cuda()))
-        probs = self.sigmoid(logits)
-        # print(probs.shape)
-        return probs
 
 
 def collate_fn(data, **kwargs):
@@ -298,7 +148,9 @@ def train(model, train_loader, val_loader, n_epochs):
             # print(y_hat.get_device())
             # print(y.get_device())
 
-            loss = criterion(y_hat, y.cuda())
+            # REPLACE if not using mac: loss = criterion(y_hat, y.cuda())
+            loss = criterion(y_hat, y.to(device))
+
             # loss = Variable(loss, requires_grad=True)
             # loss = loss.detach().to('cpu')
             # print(loss.get_device())
@@ -365,7 +217,9 @@ if __name__ == '__main__':
     train_loader, val_loader, test_loader = load_data(train_dataset, val_dataset, test_dataset, collate_fn, **params)
 
     model = RNN(len(dataset.idx2code), len(dataset.category2idx), 256)
-    model = torch.nn.DataParallel(model).cuda()
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    model = torch.nn.DataParallel(model).to(device)
+    # REPLACE if not using mac: model = torch.nn.DataParallel(model).cuda()
     print(model)
     train(model, train_loader, val_loader, params['num_epochs'])
     roc_auc, visit_prec, code_acc = test(model, test_loader)
