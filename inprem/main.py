@@ -4,10 +4,13 @@
 # @Email : xlbryant@stu.xjtu.edu.cn
 import os
 import argparse
+
 import torch
 import torch.nn.functional as F
-from doctor.model import Inprem
-from Loss import UncertaintyLoss
+from numpy.random.mtrand import random
+
+from inprem.doctor.model import Inprem
+from inprem.Loss import UncertaintyLoss, CrossEntropy
 
 
 # diagnoses bestsetting batch 32 lr 0.0005 l2 0.0001 drop 0.5 emb 256 starval 50 end val 65
@@ -95,6 +98,7 @@ def monto_calo_test(net, seq, mask, T):
     epistemic = -torch.sum(out * torch.log(out), dim=1)
 
     return out, aleatoric, epistemic, outputs
+
 
 def main(opts):
     os.environ['CUDA_VISIBLE_DEVICES'] = opts.gpu_devices

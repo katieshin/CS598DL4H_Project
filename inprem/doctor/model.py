@@ -11,7 +11,8 @@ from .layers import EncoderLayer
 from .modules import MC_dropout
 import numpy as np
 import torchsparseattn
-from doctor.sparsemax import Sparsemax
+from inprem.doctor.sparsemax import Sparsemax
+
 
 def get_attn_key_pad_mask(seq_q, mask):
     mb_size, len_q, _ = seq_q.size()
@@ -95,7 +96,6 @@ class Inprem(nn.Module):
         init.xavier_normal_(self.w_alpha_2.weight)
         self.w_alpha_2.bias.data.zero_()
 
-
         self.w_beta = nn.Linear(emb_dim, emb_dim, bias=True)
         init.xavier_normal_(self.w_beta.weight)
         self.w_beta.bias.data.zero_()
@@ -125,15 +125,18 @@ class Inprem(nn.Module):
 
         emb = self.embedding(seq)
         if not self.delete_p:
-            length = torch.sum(mask, dim=1).cpu().data.numpy()
+            # length = torch.sum(mask, dim=1).cpu().data.numpy()
+            length = torch.sum(torch.sum(mask, dim=1), dim=1).int()
+            length = length.data.numpy()
             position = []
             for len in length:
                 posi = [len - i for i in range(int(len))]
                 for i in range(mask.shape[1] - int(len)):
                     posi.append(0)
                 position.append(posi)
-            position = np.array(position)
-            position = Variable(torch.from_numpy(position)).long()
+            # position = np.array(position)
+            # position = np.array([np.array(x).astype(int) for x in position])
+            position = Variable(torch.Tensor(position))
             if mask.is_cuda:
                 position = position.cuda()
             position_emb = self.position_embedding(position)

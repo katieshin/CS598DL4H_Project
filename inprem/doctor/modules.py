@@ -33,4 +33,4 @@ class ScaledDotProductAttention(nn.Module):
 
 
 def MC_dropout(input, p=0.5, train=True):
-    return F.dropout(input, p=p, training=train, inplace=False)
+    return F.dropout(input.float(), p=p, training=train, inplace=False)

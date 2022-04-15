@@ -11,8 +11,6 @@ import torch
 import torch.nn as nn
 
 
-
-
 class Sparsemax(nn.Module):
     """Sparsemax function."""
 

@@ -6,6 +6,9 @@ import torch
 import torch.nn as nn
 
 from custom_dataset import CustomDataset
+from inprem.Loss import UncertaintyLoss
+from inprem.doctor.model import Inprem
+from inprem.main import args
 from rnn import RNN
 from functools import partial
 from torch.utils.data import DataLoader
@@ -131,22 +134,23 @@ def eval_model(model, val_loader):
 
 
 def train(model, train_loader, val_loader, n_epochs):
-    optimizer = torch.optim.Adam(model.parameters(), lr=5e-4, weight_decay=1e-4)
-    criterion = nn.BCELoss()
+    # optimizer = torch.optim.Adam(model.parameters(), lr=5e-4, weight_decay=1e-4)
+    # criterion = nn.BCELoss()
+    optimizer = torch.optim.Adam(net.parameters(), lr=opts.lr, weight_decay=opts.weight_decay)
+    criterion = UncertaintyLoss(opts.task, opts.monto_carlo_for_aleatoric, 2)
 
     torch.autograd.set_detect_anomaly(True)
 
     y_pred = torch.LongTensor()
     y_true = torch.LongTensor()
+    # y_pred = torch.FloatTensor()
+    # y_true = torch.FloatTensor()
     for epoch in range(n_epochs):
         model.train()
         train_loss = 0
         for x, masks, rev_x, rev_masks, y in train_loader:
             optimizer.zero_grad()
             y_hat = model(x, masks)
-
-            # print(y_hat.get_device())
-            # print(y.get_device())
 
             # REPLACE if not using mac: loss = criterion(y_hat, y.cuda())
             loss = criterion(y_hat, y.to(device))
@@ -216,13 +220,53 @@ if __name__ == '__main__':
 
     train_loader, val_loader, test_loader = load_data(train_dataset, val_dataset, test_dataset, collate_fn, **params)
 
-    model = RNN(len(dataset.idx2code), len(dataset.category2idx), 256)
+    # RNN
+    # model = RNN(len(dataset.idx2code), len(dataset.category2idx), 256)
+    # device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    # model = torch.nn.DataParallel(model).to(device)
+    # # REPLACE if not using mac: model = torch.nn.DataParallel(model).cuda()
+    # print(model)
+    # train(model, train_loader, val_loader, params['num_epochs'])
+    # roc_auc, visit_prec, code_acc = test(model, test_loader)
+    # print('Test roc_auc: {:.2f}'.format(roc_auc))
+    # visit_str = ' '.join(['{:.4f}@{}'.format(v, k) for k, v in visit_prec])
+    # print('Test visit-level precision@k: {}'.format(visit_str))
+    # code_str = ' '.join(['{:.4f}@{}'.format(v, k) for k, v in code_acc])
+    # print('Test code-level accuracy@k: {}'.format(code_str))
+
+    # INPREM
+    train_set_max_visit = 0
+    train_length = len(train_dataset)
+    for i in range(train_length):
+        num_visits = len(train_dataset[i][0])
+        if num_visits > train_set_max_visit:
+            train_set_max_visit = num_visits
+
+    valid_set_max_visit = 0
+    valid_length = len(val_dataset)
+    for i in range(valid_length):
+        num_visits = len(val_dataset[i][0])
+        if num_visits > valid_set_max_visit:
+            valid_set_max_visit = num_visits
+
+    test_set_max_visit = 0
+    test_length = len(test_dataset)
+    for i in range(test_length):
+        num_visits = len(test_dataset[i][0])
+        if num_visits > test_set_max_visit:
+            test_set_max_visit = num_visits
+
+    opts = args().parse_args()
+    max_visits = max(train_set_max_visit, valid_set_max_visit, test_set_max_visit)
+    input_dim = max_visits - 2
+    net = Inprem(opts.task, input_dim, 2, opts.emb_dim, max_visits,
+                 opts.n_depth, opts.n_head, opts.d_k, opts.d_v, opts.d_inner,
+                 opts.cap_uncertainty, opts.drop_rate, False, opts.dp, opts.dvp, opts.ds)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = torch.nn.DataParallel(model).to(device)
+    net = torch.nn.DataParallel(net).to(device)
     # REPLACE if not using mac: model = torch.nn.DataParallel(model).cuda()
-    print(model)
-    train(model, train_loader, val_loader, params['num_epochs'])
-    roc_auc, visit_prec, code_acc = test(model, test_loader)
+    train(net, train_loader, val_loader, params['num_epochs'])
+    roc_auc, visit_prec, code_acc = test(net, test_loader)
     print('Test roc_auc: {:.2f}'.format(roc_auc))
     visit_str = ' '.join(['{:.4f}@{}'.format(v, k) for k, v in visit_prec])
     print('Test visit-level precision@k: {}'.format(visit_str))
