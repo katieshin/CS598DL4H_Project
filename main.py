@@ -250,7 +250,8 @@ def visit_level_precision(k, y_true, y_pred):
 
     # num = determine which of top k are correct predictions
     mask = torch.zeros(y_pred.shape).scatter_(1, top_k_ind, top_k_val)
-    mask = (mask > 0.5).float()
+    # mask = (mask > 0.5).float()
+    mask = (mask > 0).float()
     num = torch.sum(mask * y_true, dim=1)
 
     # denom = determine which is smaller (k or number of categories in y_true)
@@ -268,10 +269,11 @@ def code_level_accuracy(k, y_true, y_pred):
     # determine which of top k are correct predictions
     pred_mask = torch.zeros(y_pred.shape).scatter_(1, top_k_ind, top_k_val)
     mask = (pred_mask > 0.5).float()
-    num = torch.sum(mask * y_true, dim=1)
+    num = torch.sum(torch.sum(mask * y_true, dim=1))
 
     # determine number of labels predicted (p > 0.5)
-    denom = torch.sum((pred_mask > 0.5).float(), dim=1)
+    # denom = torch.sum((pred_mask > 0.5).float(), dim=1)
+    denom = torch.sum(torch.sum((y_pred > 0.5).float(), dim=1))
     denom[denom == 0] = 1  # can't divide by zero
     # accuracy = num/denom
     # return avg(accuracy)
@@ -386,7 +388,7 @@ if __name__ == '__main__':
     train(model, train_loader, val_loader, params['num_epochs'])
     roc_auc, visit_prec, code_acc = test(model, test_loader)
     print('Test roc_auc: {:.2f}'.format(roc_auc))
-    visit_str = ' '.join(['{:.2f}@{}'.format(v, k) for k, v in visit_prec])
+    visit_str = ' '.join(['{:.4f}@{}'.format(v, k) for k, v in visit_prec])
     print('Test visit-level precision@k: {}'.format(visit_str))
-    code_str = ' '.join(['{:.2f}@{}'.format(v, k) for k, v in code_acc])
+    code_str = ' '.join(['{:.4f}@{}'.format(v, k) for k, v in code_acc])
     print('Test code-level accuracy@k: {}'.format(code_str))
