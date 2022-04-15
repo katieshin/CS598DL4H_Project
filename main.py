@@ -141,11 +141,12 @@ class RNN(nn.Module):
         s_masks = torch.sum(masks, 2)
         s_masks[s_masks > 0] = 1
         z_masks = torch.sum(s_masks, 1)-1
-        mask = torch.LongTensor(*hidden_states.shape[:2])
-        mask.zero_()
+        mask = torch.zeros(*hidden_states.shape[:2]).cuda()
+        # mask.zero_()
         mask.scatter_(1, z_masks.view(-1, 1), 1)
-        hidden_states[mask == 0] = 0
-        out = torch.sum(hidden_states, 1)
+        states = hidden_states.clone()
+        states[mask == 0] = 0
+        out = torch.sum(states, 1)
         return out
 
     def forward(self, x, masks):
@@ -164,30 +165,11 @@ class RNN(nn.Module):
 
         # 3. Pass the embeddings through the RNN layer;
         output, _ = self.lstm(x)
-        logits = self.fc(self.get_last_visit(output, masks))
+
+        logits = self.fc(self.get_last_visit(output.cuda(), masks.cuda()))
         probs = self.sigmoid(logits)
         # print(probs.shape)
         return probs
-
-        # # 1. Pass the sequence through the embedding layer;
-        # x = self.embedding(x)
-        # # 2. Sum the embeddings for each diagnosis code up for a visit of a patient.
-        # x = self.sum_embeddings_with_mask(x, masks)
-        #
-        # # 3. Pass the embeddings through the RNN layer;
-        # output, _ = self.lstm(x)
-        # # 4. Obtain the hidden state at the last visit.
-        # true_h_n = self.get_last_visit(output, masks)
-        #
-        # rev_x = self.embedding(rev_x)
-        # rev_x = self.sum_embeddings_with_mask(rev_x, rev_masks)
-        # output, _ = self.rev_lstm(rev_x)
-        # true_h_n_rev = self.get_last_visit(output, rev_masks)
-        #
-        # # 6. Pass the hidden state through the linear and activation layers.
-        # logits = self.fc(torch.cat([true_h_n, true_h_n_rev], 1))
-        # probs = self.sigmoid(logits)
-        # return probs
 
 
 def collate_fn(data, **kwargs):
@@ -299,8 +281,6 @@ def eval_model(model, val_loader):
 
 
 def train(model, train_loader, val_loader, n_epochs):
-    # os.environ['CUDA_VISIBLE_DEVICES'] = '0'
-    # model = torch.nn.DataParallel(model)
     optimizer = torch.optim.Adam(model.parameters(), lr=5e-4, weight_decay=1e-4)
     criterion = nn.BCELoss()
 
@@ -318,7 +298,7 @@ def train(model, train_loader, val_loader, n_epochs):
             # print(y_hat.get_device())
             # print(y.get_device())
 
-            loss = criterion(y_hat, y)
+            loss = criterion(y_hat, y.cuda())
             # loss = Variable(loss, requires_grad=True)
             # loss = loss.detach().to('cpu')
             # print(loss.get_device())
@@ -368,6 +348,7 @@ if __name__ == '__main__':
         'batch_size': 32,
         'num_epochs': 10
     }
+    os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 
     dataset = CustomDataset()
     train_dataset, val_dataset, test_dataset = split_dataset(dataset)
@@ -384,6 +365,7 @@ if __name__ == '__main__':
     train_loader, val_loader, test_loader = load_data(train_dataset, val_dataset, test_dataset, collate_fn, **params)
 
     model = RNN(len(dataset.idx2code), len(dataset.category2idx), 256)
+    model = torch.nn.DataParallel(model).cuda()
     print(model)
     train(model, train_loader, val_loader, params['num_epochs'])
     roc_auc, visit_prec, code_acc = test(model, test_loader)
