@@ -114,29 +114,33 @@ class Inprem(nn.Module):
 
         self.dropout = nn.Dropout(p=mcDrop)
         self.sparsemax = Sparsemax(dim=1)
+        self.sigmoid = nn.Sigmoid()
 
     def forward(self, seq, mask):
-        mask = Variable(mask, requires_grad=False)
+        mask = torch.sum(mask, dim=2)
+        mask[mask>0] = 1
+        mod_mask = mask.clone()
+        seq = seq.float()
+
+        mask = Variable(mod_mask, requires_grad=False)
 
         if self.capture_uncertainty:
             seq = MC_dropout(seq, p=self.mc_Drop, train=True)
         else:
-            seq = self.dropout(seq)
+            seq = self.dropout(seq)  # why?
 
         emb = self.embedding(seq)
         if not self.delete_p:
-            # length = torch.sum(mask, dim=1).cpu().data.numpy()
-            length = torch.sum(torch.sum(mask, dim=1), dim=1).int()
-            length = length.data.numpy()
+            length = torch.sum(mask, dim=1).cpu().data.numpy()
             position = []
             for len in length:
                 posi = [len - i for i in range(int(len))]
                 for i in range(mask.shape[1] - int(len)):
                     posi.append(0)
                 position.append(posi)
-            # position = np.array(position)
-            # position = np.array([np.array(x).astype(int) for x in position])
-            position = Variable(torch.Tensor(position))
+            position = np.array(position)
+            position = Variable(torch.from_numpy(position)).long()
+
             if mask.is_cuda:
                 position = position.cuda()
             position_emb = self.position_embedding(position)
@@ -185,4 +189,4 @@ class Inprem(nn.Module):
             variance = F.softplus(self.variance(context))
             variance = variance * variance
             return torch.cat((logit, variance), 1)
-        return logit
+        return self.sigmoid(logit)

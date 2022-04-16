@@ -133,11 +133,11 @@ def eval_model(model, val_loader):
     return roc_auc, visit_lvl, code_lvl
 
 
-def train(model, train_loader, val_loader, n_epochs):
+def train(model, train_loader, val_loader, n_epochs, params):
     # optimizer = torch.optim.Adam(model.parameters(), lr=5e-4, weight_decay=1e-4)
-    # criterion = nn.BCELoss()
-    optimizer = torch.optim.Adam(net.parameters(), lr=opts.lr, weight_decay=opts.weight_decay)
-    criterion = UncertaintyLoss(opts.task, opts.monto_carlo_for_aleatoric, 2)
+    criterion = nn.BCELoss()
+    optimizer = torch.optim.Adam(net.parameters(), lr=params['lr'], weight_decay=params['weight_decay'])
+    # criterion = UncertaintyLoss(params['task'], params['monto_carlo_for_aleatoric'], 2)
 
     torch.autograd.set_detect_anomaly(True)
 
@@ -235,37 +235,37 @@ if __name__ == '__main__':
     # print('Test code-level accuracy@k: {}'.format(code_str))
 
     # INPREM
-    train_set_max_visit = 0
-    train_length = len(train_dataset)
-    for i in range(train_length):
-        num_visits = len(train_dataset[i][0])
-        if num_visits > train_set_max_visit:
-            train_set_max_visit = num_visits
+    # print(params)
+    params['task'] = 'diagnoses'
+    params['emb_dim'] = 256
+    params['n_depth'] = 2
+    params['n_head'] = 2
+    params['d_k'] = params['emb_dim']
+    params['d_v'] = params['emb_dim']
+    params['d_inner'] = params['emb_dim']
+    params['cap_uncertainty'] = False
+    params['drop_rate'] = 0.5
+    params['dp'] = False
+    params['dvp'] = False
+    params['ds'] = False
+    params['monto_carlo_for_epistemic'] = 200
+    params['monto_carlo_for_aleatoric'] = 100
+    params['lr'] = 5e-4
+    params['weight_decay'] = 1e-4
 
-    valid_set_max_visit = 0
-    valid_length = len(val_dataset)
-    for i in range(valid_length):
-        num_visits = len(val_dataset[i][0])
-        if num_visits > valid_set_max_visit:
-            valid_set_max_visit = num_visits
 
-    test_set_max_visit = 0
-    test_length = len(test_dataset)
-    for i in range(test_length):
-        num_visits = len(test_dataset[i][0])
-        if num_visits > test_set_max_visit:
-            test_set_max_visit = num_visits
 
-    opts = args().parse_args()
-    max_visits = max(train_set_max_visit, valid_set_max_visit, test_set_max_visit)
-    input_dim = max_visits - 2
-    net = Inprem(opts.task, input_dim, 2, opts.emb_dim, max_visits,
-                 opts.n_depth, opts.n_head, opts.d_k, opts.d_v, opts.d_inner,
-                 opts.cap_uncertainty, opts.drop_rate, False, opts.dp, opts.dvp, opts.ds)
+    # opts = args().parse_args()
+    max_visits = params['max_num_visits']
+    input_dim = params['max_num_codes']
+    output_dim = len(dataset.category2idx) if not params['cap_uncertainty'] else int(len(dataset.category2idx)/2)
+    net = Inprem(params['task'], input_dim, output_dim, params['emb_dim'], max_visits,
+                 params['n_depth'], params['n_head'], params['d_k'], params['d_v'], params['d_inner'],
+                 params['cap_uncertainty'], params['drop_rate'], False, params['dp'], params['dvp'], params['ds'])
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     net = torch.nn.DataParallel(net).to(device)
     # REPLACE if not using mac: model = torch.nn.DataParallel(model).cuda()
-    train(net, train_loader, val_loader, params['num_epochs'])
+    train(net, train_loader, val_loader, params['num_epochs'], params)
     roc_auc, visit_prec, code_acc = test(net, test_loader)
     print('Test roc_auc: {:.2f}'.format(roc_auc))
     visit_str = ' '.join(['{:.4f}@{}'.format(v, k) for k, v in visit_prec])
