@@ -4,18 +4,22 @@ import random
 import sys
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from custom_dataset import CustomDataset
 from inprem.Loss import UncertaintyLoss
 from inprem.doctor.model import Inprem
 from inprem.main import args
-from rnn import RNN
 from functools import partial
 from torch.utils.data import DataLoader
 from torch.utils.data.dataset import random_split
 from torch.autograd import Variable
 
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support, label_ranking_average_precision_score, coverage_error, roc_auc_score
+
+from cnn import CNN
+from rnn import RNN
+from rnnplus import RNNplus
 
 # set seed
 seed = 24
@@ -116,9 +120,8 @@ def code_level_accuracy(k, y_true, y_pred):
 
 
 def eval_model(model, val_loader):
-    model.eval()
-    y_pred = torch.LongTensor()
-    y_true = torch.LongTensor()
+    y_pred = torch.FloatTensor()
+    y_true = torch.FloatTensor()
     model.eval()
     for x, masks, rev_x, rev_masks, y in val_loader:
         y_hat = model(x, masks)
@@ -134,17 +137,23 @@ def eval_model(model, val_loader):
 
 
 def train(model, train_loader, val_loader, n_epochs, params):
-    # optimizer = torch.optim.Adam(model.parameters(), lr=5e-4, weight_decay=1e-4)
-    criterion = nn.BCELoss()
-    optimizer = torch.optim.Adam(net.parameters(), lr=params['lr'], weight_decay=params['weight_decay'])
-    # criterion = UncertaintyLoss(params['task'], params['monto_carlo_for_aleatoric'], 2)
+
+    if params['model'] in ['RNN', 'RNNplus', 'CNN']:
+        optimizer = torch.optim.Adam(model.parameters(), lr=params['lr'], weight_decay=params['weight_decay'])
+        criterion = nn.BCELoss()
+    elif params['model'] == 'INPREM':
+        optimizer = torch.optim.Adam(model.parameters(), lr=params['lr'], weight_decay=params['weight_decay'])
+        if params['cap_uncertainty']:
+            criterion = UncertaintyLoss(params['task'], params['monto_carlo_for_aleatoric'], 2)
+        else:
+            criterion = nn.BCELoss()
+    else:
+        raise Exception('unknown model type')
 
     torch.autograd.set_detect_anomaly(True)
 
-    y_pred = torch.LongTensor()
-    y_true = torch.LongTensor()
-    # y_pred = torch.FloatTensor()
-    # y_true = torch.FloatTensor()
+    y_pred = torch.FloatTensor()
+    y_true = torch.FloatTensor()
     for epoch in range(n_epochs):
         model.train()
         train_loss = 0
@@ -163,26 +172,24 @@ def train(model, train_loader, val_loader, n_epochs, params):
 
             train_loss += loss.item()
 
-            # y_pred_tmp = (y_hat > 0.5).int()
             y_pred = torch.cat((y_pred, y_hat.detach().to('cpu')), dim=0)
             y_true = torch.cat((y_true, y.detach().to('cpu')), dim=0)
 
         train_loss = train_loss / len(train_loader)
         print('Epoch: {} \t Training Loss: {:.6f}'.format(epoch + 1, train_loss))
-        # print(accuracy_score(y_true, y_pred))
-        # print(label_ranking_average_precision_score(y_true, y_pred))
-        # print(roc_auc_score(y_true, y_pred, multi_class='ovo', average='micro'))
-        # print(roc_auc_score(y_true, y_pred, multi_class='ovr', average='micro'))
-        # print(visit_level_precision(5, y_true, y_pred))
-        # print(code_level_accuracy(5, y_true, y_pred))
         roc_auc, visit_lvl, code_lvl = eval_model(model, val_loader)
         print('Epoch: {} \t Validation roc_auc: {:.2f}, visit_lvl: {:.4f}, code_lvl: {:.4f}'.format(epoch + 1, roc_auc, visit_lvl, code_lvl))
 
+    model_dir = os.path.join('./saved_models')
+    if not os.path.exists(model_dir):
+        os.makedirs(model_dir)
+    torch.save(model.state_dict(), os.path.join(model_dir, f'{params["model"]}.pt'))
+    return
+
 
 def test(model, test_loader):
-    model.eval()
-    y_pred = torch.LongTensor()
-    y_true = torch.LongTensor()
+    y_pred = torch.FloatTensor()
+    y_true = torch.FloatTensor()
     model.eval()
     for x, masks, rev_x, rev_masks, y in test_loader:
         y_hat = model(x, masks)
@@ -200,9 +207,19 @@ def test(model, test_loader):
 
 
 if __name__ == '__main__':
+    # opts = args().parse_args()
     params = {
+        # 'model': 'CNN',
+        # 'model': 'RNN',
+        # 'model': 'RNNplus',
+        'model': 'INPREM',
         'batch_size': 32,
-        'num_epochs': 10
+        'num_epochs': 10,
+        'emb_dim': 256,
+        'lr': 5e-4,
+        'weight_decay': 1e-4,
+
+        'train': True
     }
     os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 
@@ -220,54 +237,48 @@ if __name__ == '__main__':
 
     train_loader, val_loader, test_loader = load_data(train_dataset, val_dataset, test_dataset, collate_fn, **params)
 
-    # RNN
-    # model = RNN(len(dataset.idx2code), len(dataset.category2idx), 256)
-    # device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    # model = torch.nn.DataParallel(model).to(device)
-    # # REPLACE if not using mac: model = torch.nn.DataParallel(model).cuda()
-    # print(model)
-    # train(model, train_loader, val_loader, params['num_epochs'])
-    # roc_auc, visit_prec, code_acc = test(model, test_loader)
-    # print('Test roc_auc: {:.2f}'.format(roc_auc))
-    # visit_str = ' '.join(['{:.4f}@{}'.format(v, k) for k, v in visit_prec])
-    # print('Test visit-level precision@k: {}'.format(visit_str))
-    # code_str = ' '.join(['{:.4f}@{}'.format(v, k) for k, v in code_acc])
-    # print('Test code-level accuracy@k: {}'.format(code_str))
+    if params['model'] == 'RNN':
+        model = RNN(len(dataset.idx2code), len(dataset.category2idx), params['emb_dim'], dataset.max_num_visits)
+    elif params['model'] == 'RNNplus':
+        model = RNNplus(len(dataset.idx2code), len(dataset.category2idx), params['emb_dim'])
+    elif params['model'] == 'CNN':
+        model = CNN(len(dataset.idx2code), len(dataset.category2idx), params['emb_dim'], dataset.max_num_codes)
+    elif params['model'] == 'INPREM':
+        params['task'] = 'diagnoses'
+        params['n_depth'] = 2
+        params['n_head'] = 2
+        params['d_k'] = params['emb_dim']
+        params['d_v'] = params['emb_dim']
+        params['d_inner'] = params['emb_dim']
+        params['cap_uncertainty'] = False
+        params['drop_rate'] = 0.5
+        params['dp'] = False
+        params['dvp'] = False
+        params['ds'] = False
+        params['monto_carlo_for_epistemic'] = 200
+        params['monto_carlo_for_aleatoric'] = 100
 
-    # INPREM
-    # print(params)
-    params['task'] = 'diagnoses'
-    params['emb_dim'] = 256
-    params['n_depth'] = 2
-    params['n_head'] = 2
-    params['d_k'] = params['emb_dim']
-    params['d_v'] = params['emb_dim']
-    params['d_inner'] = params['emb_dim']
-    params['cap_uncertainty'] = False
-    params['drop_rate'] = 0.5
-    params['dp'] = False
-    params['dvp'] = False
-    params['ds'] = False
-    params['monto_carlo_for_epistemic'] = 200
-    params['monto_carlo_for_aleatoric'] = 100
-    params['lr'] = 5e-4
-    params['weight_decay'] = 1e-4
+        max_visits = params['max_num_visits']
+        input_dim = params['max_num_codes']
+        output_dim = len(dataset.category2idx) if not params['cap_uncertainty'] else int(len(dataset.category2idx)/2)
+        model = Inprem(params['task'], input_dim, output_dim, params['emb_dim'], max_visits,
+                       params['n_depth'], params['n_head'], params['d_k'], params['d_v'], params['d_inner'],
+                       params['cap_uncertainty'], params['drop_rate'], False, params['dp'], params['dvp'],
+                       params['ds'])
+    else:
+        raise Exception('unknown model type')
 
-
-
-    # opts = args().parse_args()
-    max_visits = params['max_num_visits']
-    input_dim = params['max_num_codes']
-    output_dim = len(dataset.category2idx) if not params['cap_uncertainty'] else int(len(dataset.category2idx)/2)
-    net = Inprem(params['task'], input_dim, output_dim, params['emb_dim'], max_visits,
-                 params['n_depth'], params['n_head'], params['d_k'], params['d_v'], params['d_inner'],
-                 params['cap_uncertainty'], params['drop_rate'], False, params['dp'], params['dvp'], params['ds'])
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    net = torch.nn.DataParallel(net).to(device)
-    # REPLACE if not using mac: model = torch.nn.DataParallel(model).cuda()
-    train(net, train_loader, val_loader, params['num_epochs'], params)
-    roc_auc, visit_prec, code_acc = test(net, test_loader)
-    print('Test roc_auc: {:.2f}'.format(roc_auc))
+    model = torch.nn.DataParallel(model).to(device)
+    if params['train']:
+        train(model, train_loader, val_loader, params['num_epochs'], params)
+    else:
+        model_path = os.path.join('./saved_models', f'{params["model"]}.pt')
+        if not os.path.exists(model_path):
+            raise Exception(f'saved model does not exist: {model_path}')
+        model.load_state_dict(torch.load(model_path))
+    roc_auc, visit_prec, code_acc = test(model, test_loader)
+    print('Test roc_auc: {:.4f}'.format(roc_auc))
     visit_str = ' '.join(['{:.4f}@{}'.format(v, k) for k, v in visit_prec])
     print('Test visit-level precision@k: {}'.format(visit_str))
     code_str = ' '.join(['{:.4f}@{}'.format(v, k) for k, v in code_acc])

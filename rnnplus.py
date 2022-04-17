@@ -4,8 +4,8 @@ import torch.nn as nn
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
-class RNN(nn.Module):
-    def __init__(self, num_codes, num_categories, emb_dim, num_visits):
+class RNNplus(nn.Module):
+    def __init__(self, num_codes, num_categories, emb_dim):
         super().__init__()
         """
         TODO: 
@@ -28,7 +28,7 @@ class RNN(nn.Module):
         # self.rev_rnn = nn.GRU(emb_dim, hidden_size=emb_dim, batch_first=True)
         self.lstm = nn.LSTM(self.emb_dim, hidden_size=self.emb_dim, batch_first=True)
         self.rev_lstm = nn.LSTM(self.emb_dim, hidden_size=self.emb_dim, batch_first=True)
-        self.fc = nn.Linear(self.emb_dim*num_visits, self.num_categories)
+        self.fc = nn.Linear(self.emb_dim, self.num_categories)
         self.sigmoid = nn.Sigmoid()
 
     def sum_embeddings_with_mask(self, x, masks):
@@ -40,7 +40,9 @@ class RNN(nn.Module):
         s_masks = torch.sum(masks, 2)
         s_masks[s_masks > 0] = 1
         z_masks = torch.sum(s_masks, 1)-1
+        # REPLACE if not using mac: mask = torch.zeros(*hidden_states.shape[:2]).cuda()
         mask = torch.zeros(*hidden_states.shape[:2]).to(device)
+        # mask.zero_()
         mask.scatter_(1, z_masks.view(-1, 1), 1)
         states = hidden_states.clone()
         states[mask == 0] = 0
@@ -63,7 +65,9 @@ class RNN(nn.Module):
 
         # 3. Pass the embeddings through the RNN layer;
         output, _ = self.lstm(x)
-        output = torch.flatten(output, 1)
-        logits = self.fc(output)
+
+        # REPLACE if not using mac: logits = self.fc(self.get_last_visit(output.cuda(), masks.cuda()))
+        logits = self.fc(self.get_last_visit(output.to(device), masks.to(device)))
         probs = self.sigmoid(logits)
+        # print(probs.shape)
         return probs

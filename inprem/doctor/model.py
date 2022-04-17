@@ -188,5 +188,5 @@ class Inprem(nn.Module):
         if self.capture_uncertainty:
             variance = F.softplus(self.variance(context))
             variance = variance * variance
-            return torch.cat((logit, variance), 1)
+            return torch.cat((self.sigmoid(logit), variance), 1)
         return self.sigmoid(logit)
