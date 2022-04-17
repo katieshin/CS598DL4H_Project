@@ -2,6 +2,7 @@ import numpy as np
 import os
 import random
 import sys
+import time
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -137,6 +138,7 @@ def eval_model(model, val_loader):
 
 
 def train(model, train_loader, val_loader, n_epochs, params):
+    train_start = time.time()
 
     if params['model'] in ['RNN', 'RNNplus', 'CNN']:
         optimizer = torch.optim.Adam(model.parameters(), lr=params['lr'], weight_decay=params['weight_decay'])
@@ -152,9 +154,11 @@ def train(model, train_loader, val_loader, n_epochs, params):
 
     torch.autograd.set_detect_anomaly(True)
 
+    times = list()
     y_pred = torch.FloatTensor()
     y_true = torch.FloatTensor()
     for epoch in range(n_epochs):
+        epoch_start = time.time()
         model.train()
         train_loss = 0
         for x, masks, rev_x, rev_masks, y in train_loader:
@@ -179,6 +183,10 @@ def train(model, train_loader, val_loader, n_epochs, params):
         print('Epoch: {} \t Training Loss: {:.6f}'.format(epoch + 1, train_loss))
         roc_auc, visit_lvl, code_lvl = eval_model(model, val_loader)
         print('Epoch: {} \t Validation roc_auc: {:.2f}, visit_lvl: {:.4f}, code_lvl: {:.4f}'.format(epoch + 1, roc_auc, visit_lvl, code_lvl))
+        epoch_time = time.time()-epoch_start
+        print('Epoch: {} \t Time elapsed: {:.2f} sec '.format(epoch + 1, epoch_time))
+        times.append(epoch_time)
+    print('Avg. time per epoch: {:.2f} sec '.format(sum(times)/len(times)))
 
     model_dir = os.path.join('./saved_models')
     if not os.path.exists(model_dir):
@@ -207,12 +215,13 @@ def test(model, test_loader):
 
 
 if __name__ == '__main__':
+    strt = time.time()
     # opts = args().parse_args()
     params = {
         # 'model': 'CNN',
-        # 'model': 'RNN',
+        'model': 'RNN',
         # 'model': 'RNNplus',
-        'model': 'INPREM',
+        # 'model': 'INPREM',
         'batch_size': 32,
         'num_epochs': 10,
         'emb_dim': 256,
@@ -223,6 +232,7 @@ if __name__ == '__main__':
     }
     os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 
+    load_start = time.time()
     dataset = CustomDataset()
     train_dataset, val_dataset, test_dataset = split_dataset(dataset)
 
@@ -236,6 +246,7 @@ if __name__ == '__main__':
     params['category2idx'] = dataset.category2idx
 
     train_loader, val_loader, test_loader = load_data(train_dataset, val_dataset, test_dataset, collate_fn, **params)
+    print('Time take to load data: {:.2f} sec '.format(time.time()-load_start))
 
     if params['model'] == 'RNN':
         model = RNN(len(dataset.idx2code), len(dataset.category2idx), params['emb_dim'], dataset.max_num_visits)
@@ -277,9 +288,13 @@ if __name__ == '__main__':
         if not os.path.exists(model_path):
             raise Exception(f'saved model does not exist: {model_path}')
         model.load_state_dict(torch.load(model_path))
+
+    test_start = time.time()
     roc_auc, visit_prec, code_acc = test(model, test_loader)
     print('Test roc_auc: {:.4f}'.format(roc_auc))
     visit_str = ' '.join(['{:.4f}@{}'.format(v, k) for k, v in visit_prec])
     print('Test visit-level precision@k: {}'.format(visit_str))
     code_str = ' '.join(['{:.4f}@{}'.format(v, k) for k, v in code_acc])
     print('Test code-level accuracy@k: {}'.format(code_str))
+    print('Time take to test model: {:.2f} sec '.format(time.time()-test_start))
+    print('Total time to run: {:.2f} sec '.format(time.time()-strt))
