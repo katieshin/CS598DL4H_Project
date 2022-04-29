@@ -19,8 +19,10 @@ from torch.autograd import Variable
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support, label_ranking_average_precision_score, coverage_error, roc_auc_score
 
 from cnn import CNN
+from dipole import DIPOLE
 from rnn import RNN
 from rnnplus import RNNplus
+from retain import RETAIN
 
 # set seed
 seed = 24
@@ -125,7 +127,7 @@ def eval_model(model, val_loader):
     y_true = torch.FloatTensor()
     model.eval()
     for x, masks, rev_x, rev_masks, y in val_loader:
-        y_hat = model(x, masks)
+        y_hat = model(x, masks, rev_x, rev_masks)
         # y_hat = (y_hat > 0.5).int()
         y_pred = torch.cat((y_pred,  y_hat.detach().to('cpu')), dim=0)
         y_true = torch.cat((y_true, y.detach().to('cpu')), dim=0)
@@ -140,7 +142,7 @@ def eval_model(model, val_loader):
 def train(model, train_loader, val_loader, n_epochs, params):
     train_start = time.time()
 
-    if params['model'] in ['RNN', 'RNNplus', 'CNN']:
+    if params['model'] in ['RNN', 'RNNplus', 'CNN', 'RETAIN', 'DIPOLE']:
         optimizer = torch.optim.Adam(model.parameters(), lr=params['lr'], weight_decay=params['weight_decay'])
         criterion = nn.BCELoss()
     elif params['model'] == 'INPREM':
@@ -163,7 +165,7 @@ def train(model, train_loader, val_loader, n_epochs, params):
         train_loss = 0
         for x, masks, rev_x, rev_masks, y in train_loader:
             optimizer.zero_grad()
-            y_hat = model(x, masks)
+            y_hat = model(x, masks, rev_x, rev_masks)
 
             # REPLACE if not using mac: loss = criterion(y_hat, y.cuda())
             loss = criterion(y_hat, y.to(device))
@@ -200,7 +202,7 @@ def test(model, test_loader):
     y_true = torch.FloatTensor()
     model.eval()
     for x, masks, rev_x, rev_masks, y in test_loader:
-        y_hat = model(x, masks)
+        y_hat = model(x, masks, rev_x, rev_masks)
         # y_hat = (y_hat > 0.5).int()
         y_pred = torch.cat((y_pred,  y_hat.detach().to('cpu')), dim=0)
         y_true = torch.cat((y_true, y.detach().to('cpu')), dim=0)
@@ -219,7 +221,9 @@ if __name__ == '__main__':
     # opts = args().parse_args()
     params = {
         # 'model': 'CNN',
-        'model': 'RNN',
+        # 'model': 'RNN',
+        # 'model': 'RETAIN',
+        'model': 'DIPOLE',
         # 'model': 'RNNplus',
         # 'model': 'INPREM',
         'batch_size': 32,
@@ -252,6 +256,10 @@ if __name__ == '__main__':
         model = RNN(len(dataset.idx2code), len(dataset.category2idx), params['emb_dim'], dataset.max_num_visits)
     elif params['model'] == 'RNNplus':
         model = RNNplus(len(dataset.idx2code), len(dataset.category2idx), params['emb_dim'])
+    elif params['model'] == 'RETAIN':
+        model = RETAIN(len(dataset.idx2code), len(dataset.category2idx), params['emb_dim'])
+    elif params['model'] == 'DIPOLE':
+        model = DIPOLE(len(dataset.idx2code), len(dataset.category2idx), params['emb_dim'], params['max_num_codes'])
     elif params['model'] == 'CNN':
         model = CNN(len(dataset.idx2code), len(dataset.category2idx), params['emb_dim'], dataset.max_num_codes)
     elif params['model'] == 'INPREM':

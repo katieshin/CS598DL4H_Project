@@ -27,7 +27,7 @@ class CNN(nn.Module):
         out = torch.sum(x, 2)
         return out
 
-    def forward(self, x, masks):
+    def forward(self, x, masks, rev_x, rev_masks):
         out = self.embedding(x)
         out = self.sum_embeddings_with_mask(out, masks)
         out = self.dropout(F.relu(self.conv1(out)))

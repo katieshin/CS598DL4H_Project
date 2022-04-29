@@ -116,7 +116,7 @@ class Inprem(nn.Module):
         self.sparsemax = Sparsemax(dim=1)
         self.sigmoid = nn.Sigmoid()
 
-    def forward(self, seq, mask):
+    def forward(self, seq, mask, rev_x, rev_masks):
         mask = torch.sum(mask, dim=2)
         mask[mask>0] = 1
         mod_mask = mask.clone()

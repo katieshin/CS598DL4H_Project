@@ -49,7 +49,7 @@ class RNNplus(nn.Module):
         out = torch.sum(states, 1)
         return out
 
-    def forward(self, x, masks):
+    def forward(self, x, masks, rev_x, rev_masks):
         """
         Arguments:
             x: the diagnosis sequence of shape (batch_size, # visits, # diagnosis codes)
