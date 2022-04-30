@@ -10,6 +10,8 @@ from __future__ import division
 import torch
 import torch.nn as nn
 
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
 
 class Sparsemax(nn.Module):
     """Sparsemax function."""
@@ -51,7 +53,7 @@ class Sparsemax(nn.Module):
         # (NOTE: Can be replaced with linear time selection method described here:
         # http://stanford.edu/~jduchi/projects/DuchiShSiCh08.html)
         zs = torch.sort(input=input, dim=dim, descending=True)[0]
-        range = torch.arange(start=1, end=number_of_logits + 1, step=1, dtype=input.dtype).view(1, -1).cuda()
+        range = torch.arange(start=1, end=number_of_logits + 1, step=1, dtype=input.dtype).view(1, -1).to(device)
         range = range.expand_as(zs)
 
         # Determine sparsity of projection

@@ -13,6 +13,8 @@ import numpy as np
 import torchsparseattn
 from inprem.doctor.sparsemax import Sparsemax
 
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
 
 def get_attn_key_pad_mask(seq_q, mask):
     mb_size, len_q, _ = seq_q.size()
@@ -36,7 +38,7 @@ def sparsemax(x, mask):
     x = x.cpu()
     fusedmax = torchsparseattn.Fusedmax(alpha=.2)
     mask = torch.sum(mask.squeeze(2), 1).long()
-    return fusedmax(x.squeeze(2), mask.unsqueeze(1)).unsqueeze(2).cuda()
+    return fusedmax(x.squeeze(2), mask.unsqueeze(1)).unsqueeze(2).to(device)
 
 
 class Encoder(nn.Module):
@@ -158,7 +160,7 @@ class Inprem(nn.Module):
                 if int(length[i]) < mask.shape[1]:
                     alpha_.append(torch.cat(
                         (self.sparsemax(item[:int(length[i])].squeeze(1).unsqueeze(0)),
-                         torch.zeros(1, mask.shape[1]-int(length[i])).float().cuda()), dim=1)
+                         torch.zeros(1, mask.shape[1]-int(length[i])).float().to(device)), dim=1)
                     )
                 else:
                     alpha_.append(self.sparsemax(item[:int(length[i])].squeeze(1).unsqueeze(0)))
