@@ -1,28 +1,24 @@
-import numpy as np
+import argparse
 import os
 import random
-import sys
 import time
+from functools import partial
+
+import numpy as np
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-
-from custom_dataset import CustomDataset
-from inprem.Loss import UncertaintyLoss
-from inprem.doctor.model import Inprem
-from inprem.main import args
-from functools import partial
+from sklearn.metrics import roc_auc_score
 from torch.utils.data import DataLoader
 from torch.utils.data.dataset import random_split
-from torch.autograd import Variable
-
-from sklearn.metrics import accuracy_score, precision_recall_fscore_support, label_ranking_average_precision_score, coverage_error, roc_auc_score
 
 from cnn import CNN
+from custom_dataset import CustomDataset
 from dipole import DIPOLE
+from inprem.Loss import UncertaintyLoss
+from inprem.doctor.model import Inprem
+from retain import RETAIN
 from rnn import RNN
 from rnnplus import RNNplus
-from retain import RETAIN
 
 # set seed
 seed = 24
@@ -30,6 +26,25 @@ random.seed(seed)
 np.random.seed(seed)
 torch.manual_seed(seed)
 os.environ["PYTHONHASHSEED"] = str(seed)
+base_dir = os.path.dirname(__file__)
+
+
+def args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--model', choices=('CNN', 'RNN', 'RETAIN', 'DIPOLE', 'RNNplus', 'INPREM'), help='Choose the optimizer.', default='INPREM')
+    parser.add_argument('--emb_dim', type=int, default=256, help='The size of medical variable (or code) embedding.')
+    parser.add_argument('--train', action='store_true', help='Weather capture uncertainty.', default=False)
+    parser.add_argument('--epochs', type=int, default=25, help='Setting epochs.')
+    parser.add_argument('--batch_size', type=int, default=32, help='Mini-batch size')
+    parser.add_argument('--drop_rate', type=float, default=0.5, help='The drop-out rate before each weight layer.')
+    parser.add_argument('--optimizer', choices=('Adam', 'SGD', 'Adadelta'), help='Choose the optimizer.', default='Adam')
+    parser.add_argument('--lr', type=float, default=5e-4, help='The learning rate for each step.')
+    parser.add_argument('--weight_decay', type=float, default=1e-4, help='Setting weight decay')
+    parser.add_argument('--cap_uncertainty', action='store_true', help='Weather capture uncertainty.', default=False)
+    parser.add_argument('--save_model_dir', type=str, default=os.path.join(base_dir, 'saved_models'), help='Set dir to save the model which has the best performance.')
+    parser.add_argument('--data_csv', type=str, default=os.path.join(base_dir, 'data', 'DIAGNOSES_ICD.csv'), help='Path to data file')
+    parser.add_argument('--icd9map', type=str, default=os.path.join(base_dir, 'data', 'icd9_map.json'), help='Path to json file for icd9 code mapping to categories')
+    return parser.parse_args()
 
 
 def collate_fn(data, **kwargs):
@@ -101,7 +116,7 @@ def visit_level_precision(k, y_true, y_pred):
     denom[denom > k] = k
     # precision num/denom
     # return avg(precision)
-    return torch.mean(num/denom)
+    return torch.mean(num / denom)
 
 
 def code_level_accuracy(k, y_true, y_pred):
@@ -119,7 +134,7 @@ def code_level_accuracy(k, y_true, y_pred):
     denom[denom == 0] = 1  # can't divide by zero
     # accuracy = num/denom
     # return avg(accuracy)
-    return torch.mean(num/denom)
+    return torch.mean(num / denom)
 
 
 def eval_model(model, val_loader):
@@ -129,7 +144,7 @@ def eval_model(model, val_loader):
     for x, masks, rev_x, rev_masks, y in val_loader:
         y_hat = model(x, masks, rev_x, rev_masks)
         # y_hat = (y_hat > 0.5).int()
-        y_pred = torch.cat((y_pred,  y_hat.detach().to('cpu')), dim=0)
+        y_pred = torch.cat((y_pred, y_hat.detach().to('cpu')), dim=0)
         y_true = torch.cat((y_true, y.detach().to('cpu')), dim=0)
 
     # ovr and ovo appear to give the same results for our model
@@ -142,13 +157,19 @@ def eval_model(model, val_loader):
 def train(model, train_loader, val_loader, n_epochs, params):
     train_start = time.time()
 
-    if params['model'] in ['RNN', 'RNNplus', 'CNN', 'RETAIN', 'DIPOLE']:
+    if params['optimizer'] == 'Adam':
         optimizer = torch.optim.Adam(model.parameters(), lr=params['lr'], weight_decay=params['weight_decay'])
+    elif params['optimizer'] == 'SGD':
+        optimizer = torch.optim.SGD(model.parameters(), lr=params['lr'], weight_decay=params['weight_decay'])
+    elif params['optimizer'] == 'Adadelta':
+        optimizer = torch.optim.Adadelta(model.parameters(), lr=params['lr'], weight_decay=params['weight_decay'])
+
+    if params['model'] in ['RNN', 'RNNplus', 'CNN', 'RETAIN', 'DIPOLE']:
         criterion = nn.BCELoss()
     elif params['model'] == 'INPREM':
-        optimizer = torch.optim.Adam(model.parameters(), lr=params['lr'], weight_decay=params['weight_decay'])
         if params['cap_uncertainty']:
-            criterion = UncertaintyLoss(params['task'], params['monto_carlo_for_aleatoric'], 2)
+            criterion = UncertaintyLoss(params['task'], params['monto_carlo_for_aleatoric'],
+                                        len(params['category2idx']))
         else:
             criterion = nn.BCELoss()
     else:
@@ -170,9 +191,6 @@ def train(model, train_loader, val_loader, n_epochs, params):
             # REPLACE if not using mac: loss = criterion(y_hat, y.cuda())
             loss = criterion(y_hat, y.to(device))
 
-            # loss = Variable(loss, requires_grad=True)
-            # loss = loss.detach().to('cpu')
-            # print(loss.get_device())
             loss.backward()
             optimizer.step()
 
@@ -184,11 +202,13 @@ def train(model, train_loader, val_loader, n_epochs, params):
         train_loss = train_loss / len(train_loader)
         print('Epoch: {} \t Training Loss: {:.6f}'.format(epoch + 1, train_loss))
         roc_auc, visit_lvl, code_lvl = eval_model(model, val_loader)
-        print('Epoch: {} \t Validation roc_auc: {:.2f}, visit_lvl: {:.4f}, code_lvl: {:.4f}'.format(epoch + 1, roc_auc, visit_lvl, code_lvl))
-        epoch_time = time.time()-epoch_start
+        print('Epoch: {} \t Validation roc_auc: {:.2f}, visit_lvl: {:.4f}, code_lvl: {:.4f}'.format(epoch + 1, roc_auc,
+                                                                                                    visit_lvl,
+                                                                                                    code_lvl))
+        epoch_time = time.time() - epoch_start
         print('Epoch: {} \t Time elapsed: {:.2f} sec '.format(epoch + 1, epoch_time))
         times.append(epoch_time)
-    print('Avg. time per epoch: {:.2f} sec '.format(sum(times)/len(times)))
+    print('Avg. time per epoch: {:.2f} sec '.format(sum(times) / len(times)))
 
     model_dir = os.path.join('./saved_models')
     if not os.path.exists(model_dir):
@@ -204,7 +224,7 @@ def test(model, test_loader):
     for x, masks, rev_x, rev_masks, y in test_loader:
         y_hat = model(x, masks, rev_x, rev_masks)
         # y_hat = (y_hat > 0.5).int()
-        y_pred = torch.cat((y_pred,  y_hat.detach().to('cpu')), dim=0)
+        y_pred = torch.cat((y_pred, y_hat.detach().to('cpu')), dim=0)
         y_true = torch.cat((y_true, y.detach().to('cpu')), dim=0)
     roc_auc = roc_auc_score(y_true, y_pred, multi_class='ovr', average='micro')
 
@@ -218,26 +238,21 @@ def test(model, test_loader):
 
 if __name__ == '__main__':
     strt = time.time()
-    # opts = args().parse_args()
+    opts = args()
     params = {
-        # 'model': 'CNN',
-        # 'model': 'RNN',
-        # 'model': 'RETAIN',
-        'model': 'DIPOLE',
-        # 'model': 'RNNplus',
-        # 'model': 'INPREM',
-        'batch_size': 32,
-        'num_epochs': 10,
-        'emb_dim': 256,
-        'lr': 5e-4,
-        'weight_decay': 1e-4,
-
-        'train': True
+        'model': opts.model,
+        'batch_size': opts.batch_size,
+        'num_epochs': opts.epochs,
+        'emb_dim': opts.emb_dim,
+        'lr': opts.lr,
+        'weight_decay': opts.weight_decay,
+        'optimizer': opts.optimizer,
+        'train': opts.train
     }
     os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 
     load_start = time.time()
-    dataset = CustomDataset()
+    dataset = CustomDataset(opts.data_csv, opts.icd9map)
     train_dataset, val_dataset, test_dataset = split_dataset(dataset)
 
     params['num_patients'] = dataset.num_patients
@@ -250,7 +265,7 @@ if __name__ == '__main__':
     params['category2idx'] = dataset.category2idx
 
     train_loader, val_loader, test_loader = load_data(train_dataset, val_dataset, test_dataset, collate_fn, **params)
-    print('Time take to load data: {:.2f} sec '.format(time.time()-load_start))
+    print('Time take to load data: {:.2f} sec '.format(time.time() - load_start))
 
     if params['model'] == 'RNN':
         model = RNN(len(dataset.idx2code), len(dataset.category2idx), params['emb_dim'], dataset.max_num_visits)
@@ -269,8 +284,8 @@ if __name__ == '__main__':
         params['d_k'] = params['emb_dim']
         params['d_v'] = params['emb_dim']
         params['d_inner'] = params['emb_dim']
-        params['cap_uncertainty'] = False
-        params['drop_rate'] = 0.5
+        params['cap_uncertainty'] = opts.cap_uncertainty
+        params['drop_rate'] = opts.drop_rate
         params['dp'] = False
         params['dvp'] = False
         params['ds'] = False
@@ -279,7 +294,7 @@ if __name__ == '__main__':
 
         max_visits = params['max_num_visits']
         input_dim = params['max_num_codes']
-        output_dim = len(dataset.category2idx) if not params['cap_uncertainty'] else int(len(dataset.category2idx)/2)
+        output_dim = len(dataset.category2idx) if not params['cap_uncertainty'] else int(len(dataset.category2idx) / 2)
         model = Inprem(params['task'], input_dim, output_dim, params['emb_dim'], max_visits,
                        params['n_depth'], params['n_head'], params['d_k'], params['d_v'], params['d_inner'],
                        params['cap_uncertainty'], params['drop_rate'], False, params['dp'], params['dvp'],
@@ -304,5 +319,5 @@ if __name__ == '__main__':
     print('Test visit-level precision@k: {}'.format(visit_str))
     code_str = ' '.join(['{:.4f}@{}'.format(v, k) for k, v in code_acc])
     print('Test code-level accuracy@k: {}'.format(code_str))
-    print('Time take to test model: {:.2f} sec '.format(time.time()-test_start))
-    print('Total time to run: {:.2f} sec '.format(time.time()-strt))
+    print('Time take to test model: {:.2f} sec '.format(time.time() - test_start))
+    print('Total time to run: {:.2f} sec '.format(time.time() - strt))

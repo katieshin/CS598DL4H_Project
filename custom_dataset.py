@@ -4,13 +4,11 @@ import pandas as pd
 
 from torch.utils.data import Dataset
 
-DATA_PATH = "../CS598DL4H_Project/data"
-
 
 class CustomDataset(Dataset):
-    def __init__(self):
+    def __init__(self, data_path, map_path):
 
-        with open(os.path.join(DATA_PATH, 'icd9_map.json')) as fp:
+        with open(map_path) as fp:
             icd9_map = json.load(fp)
 
         # compile data
@@ -18,21 +16,20 @@ class CustomDataset(Dataset):
         unq_cats = set()
 
         data_dict = dict()
-        for f in ['DIAGNOSES_ICD.csv']:
-            df = pd.read_csv(os.path.join(DATA_PATH, f), dtype=str)
-            for row in df.to_dict('records'):
-                try:
-                    patient = int(row['SUBJECT_ID'])
-                    visit = int(row['HADM_ID'])
-                    code_set = (int(row['SEQ_NUM']), row['ICD9_CODE'])  # allows for sorting
-                except Exception as e:
-                    continue
+        df = pd.read_csv(data_path, dtype=str)
+        for row in df.to_dict('records'):
+            try:
+                patient = int(row['SUBJECT_ID'])
+                visit = int(row['HADM_ID'])
+                code_set = (int(row['SEQ_NUM']), row['ICD9_CODE'])  # allows for sorting
+            except Exception as e:
+                continue
 
-                if patient not in data_dict.keys():
-                    data_dict[patient] = dict()
-                if visit not in data_dict[patient].keys():
-                    data_dict[patient][visit] = list()
-                data_dict[patient][visit].append(code_set)
+            if patient not in data_dict.keys():
+                data_dict[patient] = dict()
+            if visit not in data_dict[patient].keys():
+                data_dict[patient][visit] = list()
+            data_dict[patient][visit].append(code_set)
 
         data_codes = list()
         data_categories = list()
