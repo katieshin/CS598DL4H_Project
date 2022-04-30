@@ -17,10 +17,18 @@ The goal of the INPREM model is to be used for clinical prediction tasks, which 
 
 ## Requirements
 
+Create a python 3.8 environment.
+
 To install requirements:
 
 ```commandline
 pip install -r requirements.txt
+```
+
+(Optional) For Windows and Linux users, to enable the models to run on your GPU the appropriate version of the torch must be installed.
+
+```commandline
+pip3 install torch --extra-index-url https://download.pytorch.org/whl/cu113
 ```
 
 ## Training
@@ -49,7 +57,7 @@ The following are available arguments that can be set:
   - default: 5e-4
 - `--weight_decay`: weight decay for the model run
   - default: 1e-4
-- `--cap_uncertainty`: boolean for capping uncertainty
+- `--cap_uncertainty`: boolean for capturing uncertainty
   - default: `False`
 - `--save_model_dir`: directory to save the model with the best performance
   - default: `os.path.join(base_dir, 'saved_models')`
