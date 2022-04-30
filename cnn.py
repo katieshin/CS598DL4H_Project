@@ -5,20 +5,19 @@ import torch.nn.functional as F
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 class CNN(nn.Module):
-    def __init__(self, num_codes, num_categories, emb_dim, max_num_codes):
+    def __init__(self, params):
         super(CNN, self).__init__()
-        self.num_codes = num_codes
-        self.num_categories = num_categories
-        self.emb_dim = emb_dim
+        self.num_codes = len(params['code2idx'])
+        self.num_categories = len(params['category2idx'])
+        self.emb_dim = params['emb_dim']
 
         self.embedding = nn.Embedding(self.num_codes, self.emb_dim)
 
-        self.conv1 = nn.Conv1d(41, self.emb_dim, 3)
+        self.conv1 = nn.Conv1d(params['max_num_visits'], self.emb_dim, 3)
         self.conv2 = nn.Conv1d(self.emb_dim, self.emb_dim, 4)
-        self.conv3 = nn.Conv1d(self.emb_dim, num_categories, 5)
+        self.conv3 = nn.Conv1d(self.emb_dim, self.num_categories, 5)
 
         self.fc1 = nn.Linear(self.emb_dim-3-4-5+3, 1)
-
         self.dropout = nn.Dropout(p=0.5)
         self.sigmoid = nn.Sigmoid()
 
@@ -33,5 +32,5 @@ class CNN(nn.Module):
         out = self.dropout(F.relu(self.conv1(out)))
         out = self.dropout(F.relu(self.conv2(out)))
         out = self.dropout(F.relu(self.conv3(out)))
-        out = F.relu(self.fc1(out).squeeze(2))
+        out = self.fc1(out).squeeze(2)
         return self.sigmoid(out)

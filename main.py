@@ -157,6 +157,7 @@ def eval_model(model, val_loader):
 def train(model, train_loader, val_loader, n_epochs, params):
     train_start = time.time()
 
+    optimizer = None
     if params['optimizer'] == 'Adam':
         optimizer = torch.optim.Adam(model.parameters(), lr=params['lr'], weight_decay=params['weight_decay'])
     elif params['optimizer'] == 'SGD':
@@ -187,13 +188,11 @@ def train(model, train_loader, val_loader, n_epochs, params):
         for x, masks, rev_x, rev_masks, y in train_loader:
             optimizer.zero_grad()
             y_hat = model(x, masks, rev_x, rev_masks)
-
-            # REPLACE if not using mac: loss = criterion(y_hat, y.cuda())
+            # print(y_hat)
             loss = criterion(y_hat, y.to(device))
 
             loss.backward()
             optimizer.step()
-
             train_loss += loss.item()
 
             y_pred = torch.cat((y_pred, y_hat.detach().to('cpu')), dim=0)
@@ -247,7 +246,8 @@ if __name__ == '__main__':
         'lr': opts.lr,
         'weight_decay': opts.weight_decay,
         'optimizer': opts.optimizer,
-        'train': opts.train
+        'train': opts.train,
+        'drop_rate': opts.drop_rate
     }
     os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 
@@ -276,7 +276,7 @@ if __name__ == '__main__':
     elif params['model'] == 'DIPOLE':
         model = DIPOLE(len(dataset.idx2code), len(dataset.category2idx), params['emb_dim'], params['max_num_codes'])
     elif params['model'] == 'CNN':
-        model = CNN(len(dataset.idx2code), len(dataset.category2idx), params['emb_dim'], dataset.max_num_codes)
+        model = CNN(params)
     elif params['model'] == 'INPREM':
         params['task'] = 'diagnoses'
         params['n_depth'] = 2
@@ -285,7 +285,6 @@ if __name__ == '__main__':
         params['d_v'] = params['emb_dim']
         params['d_inner'] = params['emb_dim']
         params['cap_uncertainty'] = opts.cap_uncertainty
-        params['drop_rate'] = opts.drop_rate
         params['dp'] = False
         params['dvp'] = False
         params['ds'] = False
