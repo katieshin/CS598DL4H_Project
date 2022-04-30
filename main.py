@@ -11,14 +11,9 @@ from sklearn.metrics import roc_auc_score
 from torch.utils.data import DataLoader
 from torch.utils.data.dataset import random_split
 
-from cnn import CNN
+from baseline_models import CNN, RNN, RNNplus, RETAIN, DIPOLE
 from custom_dataset import CustomDataset
-from dipole import DIPOLE
-from inprem.Loss import UncertaintyLoss
-from inprem.doctor.model import Inprem
-from retain import RETAIN
-from rnn import RNN
-from rnnplus import RNNplus
+from inprem import Inprem, UncertaintyLoss
 
 # set seed
 seed = 24
