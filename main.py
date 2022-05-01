@@ -26,7 +26,7 @@ base_dir = os.path.dirname(__file__)
 
 def args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model', choices=('CNN', 'RNN', 'RETAIN', 'DIPOLE', 'RNNplus', 'INPREM'), help='Choose the optimizer.', default='INPREM')
+    parser.add_argument('--model', choices=('CNN', 'RNN', 'RETAIN', 'DIPOLE', 'RNNplus', 'INPREM', 'INPREM_b', 'INPREM_s', 'INPREM_o'), help='Choose the optimizer.', default='INPREM')
     parser.add_argument('--emb_dim', type=int, default=256, help='The size of medical variable (or code) embedding.')
     parser.add_argument('--train', action='store_true', help='Weather capture uncertainty.', default=False)
     parser.add_argument('--epochs', type=int, default=25, help='Setting epochs.')
@@ -35,7 +35,6 @@ def args():
     parser.add_argument('--optimizer', choices=('Adam', 'SGD', 'Adadelta'), help='Choose the optimizer.', default='Adam')
     parser.add_argument('--lr', type=float, default=5e-4, help='The learning rate for each step.')
     parser.add_argument('--weight_decay', type=float, default=1e-4, help='Setting weight decay')
-    parser.add_argument('--cap_uncertainty', action='store_true', help='Weather capture uncertainty.', default=False)
     parser.add_argument('--save_model_dir', type=str, default=os.path.join(base_dir, 'saved_models'), help='Set dir to save the model which has the best performance.')
     parser.add_argument('--data_csv', type=str, default=os.path.join(base_dir, 'data', 'DIAGNOSES_ICD.csv'), help='Path to data file')
     parser.add_argument('--icd9map', type=str, default=os.path.join(base_dir, 'data', 'icd9_map.json'), help='Path to json file for icd9 code mapping to categories')
@@ -124,12 +123,16 @@ def code_level_accuracy(k, y_true, y_pred):
     num = torch.sum(torch.sum(mask * y_true, dim=1))
 
     # determine number of labels predicted (p > 0.5)
-    # denom = torch.sum((pred_mask > 0.5).float(), dim=1)
     denom = torch.sum(torch.sum((y_pred > 0.5).float(), dim=1))
-    denom[denom == 0] = 1  # can't divide by zero
-    # accuracy = num/denom
-    # return avg(accuracy)
+    denom[denom == 0] = 1
     return torch.mean(num / denom)
+
+
+def save_model(params, model):
+    model_dir = params['save_model_dir']
+    if not os.path.exists(model_dir):
+        os.makedirs(model_dir)
+    torch.save(model.state_dict(), os.path.join(model_dir, f'{params["model"]}.pt'))
 
 
 def eval_model(model, val_loader):
@@ -162,7 +165,7 @@ def train(model, train_loader, val_loader, n_epochs, params):
 
     if params['model'] in ['RNN', 'RNNplus', 'CNN', 'RETAIN', 'DIPOLE']:
         criterion = nn.BCELoss()
-    elif params['model'] == 'INPREM':
+    elif params['model'] in ['INPREM', 'INPREM_b', 'INPREM_s', 'INPREM_o']:
         if params['cap_uncertainty']:
             criterion = UncertaintyLoss(params['task'], params['monto_carlo_for_aleatoric'],
                                         len(params['category2idx']))
@@ -174,6 +177,7 @@ def train(model, train_loader, val_loader, n_epochs, params):
     torch.autograd.set_detect_anomaly(True)
 
     times = list()
+    prev_loss = None
     y_pred = torch.FloatTensor()
     y_true = torch.FloatTensor()
     for epoch in range(n_epochs):
@@ -183,9 +187,7 @@ def train(model, train_loader, val_loader, n_epochs, params):
         for x, masks, rev_x, rev_masks, y in train_loader:
             optimizer.zero_grad()
             y_hat = model(x, masks, rev_x, rev_masks)
-            # print(y_hat)
             loss = criterion(y_hat, y.to(device))
-
             loss.backward()
             optimizer.step()
             train_loss += loss.item()
@@ -194,6 +196,9 @@ def train(model, train_loader, val_loader, n_epochs, params):
             y_true = torch.cat((y_true, y.detach().to('cpu')), dim=0)
 
         train_loss = train_loss / len(train_loader)
+        if prev_loss is None or train_loss < prev_loss:
+            save_model(params, model)
+        prev_loss = train_loss
         print('Epoch: {} \t Training Loss: {:.6f}'.format(epoch + 1, train_loss))
         roc_auc, visit_lvl, code_lvl = eval_model(model, val_loader)
         print('Epoch: {} \t Validation roc_auc: {:.2f}, visit_lvl: {:.4f}, code_lvl: {:.4f}'.format(epoch + 1, roc_auc,
@@ -204,10 +209,6 @@ def train(model, train_loader, val_loader, n_epochs, params):
         times.append(epoch_time)
     print('Avg. time per epoch: {:.2f} sec '.format(sum(times) / len(times)))
 
-    model_dir = os.path.join('./saved_models')
-    if not os.path.exists(model_dir):
-        os.makedirs(model_dir)
-    torch.save(model.state_dict(), os.path.join(model_dir, f'{params["model"]}.pt'))
     return
 
 
@@ -242,7 +243,8 @@ if __name__ == '__main__':
         'weight_decay': opts.weight_decay,
         'optimizer': opts.optimizer,
         'train': opts.train,
-        'drop_rate': opts.drop_rate
+        'drop_rate': opts.drop_rate,
+        'save_model_dir': opts.save_model_dir
     }
     os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 
@@ -272,17 +274,17 @@ if __name__ == '__main__':
         model = DIPOLE(len(dataset.idx2code), len(dataset.category2idx), params['emb_dim'], params['max_num_codes'])
     elif params['model'] == 'CNN':
         model = CNN(params)
-    elif params['model'] == 'INPREM':
+    elif params['model'] in ['INPREM', 'INPREM_b', 'INPREM_s', 'INPREM_o']:
         params['task'] = 'diagnoses'
         params['n_depth'] = 2
         params['n_head'] = 2
         params['d_k'] = params['emb_dim']
         params['d_v'] = params['emb_dim']
         params['d_inner'] = params['emb_dim']
-        params['cap_uncertainty'] = opts.cap_uncertainty
-        params['dp'] = False
+        params['cap_uncertainty'] = True if params['model'] == 'INPREM' else False
+        params['dp'] = True if params['model'] == 'INPREM_o' else False
         params['dvp'] = False
-        params['ds'] = False
+        params['ds'] = True if params['model'] == 'INPREM_s' else False
         params['monto_carlo_for_epistemic'] = 200
         params['monto_carlo_for_aleatoric'] = 100
 
@@ -300,11 +302,11 @@ if __name__ == '__main__':
     model = torch.nn.DataParallel(model).to(device)
     if params['train']:
         train(model, train_loader, val_loader, params['num_epochs'], params)
-    else:
-        model_path = os.path.join('./saved_models', f'{params["model"]}.pt')
-        if not os.path.exists(model_path):
-            raise Exception(f'saved model does not exist: {model_path}')
-        model.load_state_dict(torch.load(model_path))
+
+    model_path = os.path.join(params['save_model_dir'], f'{params["model"]}.pt')
+    if not os.path.exists(model_path):
+        raise Exception(f'saved model does not exist: {model_path}')
+    model.load_state_dict(torch.load(model_path, map_location=torch.device(device)))
 
     test_start = time.time()
     roc_auc, visit_prec, code_acc = test(model, test_loader)
