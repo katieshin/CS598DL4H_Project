@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.init as init
 import torch.nn.functional as F
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -14,10 +15,14 @@ class CNN(nn.Module):
         self.embedding = nn.Embedding(self.num_codes, self.emb_dim)
 
         self.conv1 = nn.Conv1d(params['max_num_visits'], self.emb_dim, 3)
+        init.xavier_normal_(self.conv1.weight)
         self.conv2 = nn.Conv1d(self.emb_dim, self.emb_dim, 4)
+        init.xavier_normal_(self.conv2.weight)
         self.conv3 = nn.Conv1d(self.emb_dim, self.num_categories, 5)
+        init.xavier_normal_(self.conv3.weight)
 
         self.fc1 = nn.Linear(self.emb_dim-3-4-5+3, 1)
+        init.xavier_normal_(self.fc1.weight)
         self.dropout = nn.Dropout(p=0.5)
         self.sigmoid = nn.Sigmoid()
 
