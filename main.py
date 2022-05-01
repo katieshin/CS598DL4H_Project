@@ -51,8 +51,8 @@ def collate_fn(data, **kwargs):
     max_num_categories = kwargs['max_num_categories']
     category2idx = kwargs['category2idx']
 
-    x = torch.zeros((num_patients, max_num_visits, max_num_codes), dtype=torch.float)
-    rev_x = torch.zeros((num_patients, max_num_visits, max_num_codes), dtype=torch.float)
+    x = torch.zeros((num_patients, max_num_visits, max_num_codes), dtype=torch.long)
+    rev_x = torch.zeros((num_patients, max_num_visits, max_num_codes), dtype=torch.long)
     masks = torch.zeros((num_patients, max_num_visits, max_num_codes), dtype=torch.bool)
     rev_masks = torch.zeros((num_patients, max_num_visits, max_num_codes), dtype=torch.bool)
     y = torch.zeros((num_patients, len(category2idx)), dtype=torch.float)

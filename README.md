@@ -57,8 +57,6 @@ The following are available arguments that can be set:
   - default: 5e-4
 - `--weight_decay`: weight decay for the model run
   - default: 1e-4
-- `--cap_uncertainty`: boolean for capturing uncertainty
-  - default: `False`
 - `--save_model_dir`: directory to save the model with the best performance
   - default: `os.path.join(base_dir, 'saved_models')`
 - `--data_csv`: data file which will be used to train and evaluate a model
@@ -82,3 +80,228 @@ Running `main.py` will output the following evaluation results:
 
 ## Results
 
+	
+<table>
+  <tr>
+    <th></th>
+    <th>Model</th>
+    <th>ROC AUC</th>
+    <th>Time to<br>Test [sec]</th>
+    <th>Time to<br>Run [sec]</th>
+  </tr>
+  <tr>
+    <td rowspan="5">Baselines</td>
+    <td>CNN</td>
+	<td>0.9083</td>
+	<td>2.05</td>
+	<td>9.40</td>
+  </tr>
+  <tr>
+    <td>RNN</td>
+	<td>0.8992</td>
+	<td>1.62</td>
+	<td>9.27</td>
+  </tr>
+  <tr>
+    <td>RNN+</td>
+	<td>0.9142</td>
+	<td>1.58</td>
+	<td>9.21</td>
+  </tr>
+  <tr>
+    <td>RETAIN</td>
+	<td>0.8843</td>
+	<td>1.62</td>
+	<td>9.22</td>
+  </tr>
+  <tr>
+    <td>Dipole</td>
+	<td>0.9009</td>
+	<td>1.63</td>
+	<td>9.25</td>
+  </tr>
+  <tr>
+    <td rowspan="4">INPREM</td>
+    <td>INPREM</td>
+	<td>0.4918</td>
+	<td>2.87</td>
+	<td>10.31</td>
+  </tr>
+  <tr>
+    <td>INPREM<sub>b-</sub></td>
+	<td>0.6051</td>
+	<td>3.15</td>
+	<td>10.66</td>
+  </tr>
+  <tr>
+    <td>INPREM<sub>o-</sub></td>
+	<td>0.5879</td>
+	<td>3.03</td>
+	<td>10.84</td>
+  </tr>
+  <tr>
+    <td>INPREM<sub>s-</sub></td>
+	<td>0.6053</td>
+	<td>2.16</td>
+	<td>9.93</td>
+  </tr>
+</table>
+
+<table>
+  <tr>
+    <th rowspan="2"></th>
+    <th rowspan="2">Model</th>
+    <th colspan="6">Code-Level Accuracy@k</th>
+    <th colspan="6">Visit-Level Precision@k</th>
+  </tr>
+  <tr>
+    <td>5</td>
+    <td>10</td>
+    <td>15</td>
+    <td>20</td>
+    <td>25</td>
+    <td>30</td>
+    <td>5</td>
+    <td>10</td>
+    <td>15</td>
+    <td>20</td>
+    <td>25</td>
+    <td>30</td>
+  </tr>
+  <tr>
+    <td rowspan="5">Baselines</td>
+    <td>CNN</td>
+    <td>0.5266</td>
+    <td>0.5736</td>
+    <td>0.5736</td>
+    <td>0.5736</td>
+    <td>0.5736</td>
+    <td>0.5736</td>
+    <td>0.5280</td>
+    <td>0.5279</td>
+    <td>0.5869</td>
+    <td>0.6638</td>
+    <td>0.7320</td>
+    <td>0.7779</td>
+  </tr>
+  <tr>
+    <td>RNN</td><td>0.4155</td>
+	<td>0.5363</td>
+	<td>0.5567</td>
+	<td>0.5582</td>
+	<td>0.5582</td>
+	<td>0.5582</td>
+	<td>0.6089</td>
+	<td>0.5758</td>
+	<td>0.6246</td>
+	<td>0.6874</td>
+	<td>0.7426</td>
+	<td>0.7834</td>
+  </tr>
+  <tr>
+    <td>RNN+</td>
+	<td>0.6238</td>
+	<td>0.7094</td>
+	<td>0.7123</td>
+	<td>0.7123</td>
+	<td>0.7123</td>
+	<td>0.7123</td>
+	<td>0.6300</td>
+	<td>0.5931</td>
+	<td>0.6409</td>
+	<td>0.7053</td>
+	<td>0.7630</td>
+	<td>0.8071</td>
+  </tr>
+  <tr>
+    <td>RETAIN</td>
+	<td>0.5601</td>
+	<td>0.6481</td>
+	<td>0.6557</td>
+	<td>0.6557</td>
+	<td>0.6557</td>
+	<td>0.6557</td>
+	<td>0.6009</td>
+	<td>0.5661</td>
+	<td>0.6198</td>
+	<td>0.6858</td>
+	<td>0.7482</td>
+	<td>0.7919</td>
+  </tr>
+  <tr>
+    <td>Dipole</td>
+	<td>0.5635</td>
+	<td>0.5635</td>
+	<td>0.5635</td>
+	<td>0.5635</td>
+	<td>0.5635</td>
+	<td>0.5635</td>
+	<td>0.4772</td>
+	<td>0.4756</td>
+	<td>0.5442</td>
+	<td>0.6348</td>
+	<td>0.7028</td>
+	<td>0.7539</td>
+  </tr>
+  <tr>
+    <td rowspan="4">INPREM</td>
+    <td>INPREM</td>
+	<td>0.0249</td>
+	<td>0.0249</td>
+	<td>0.0249</td>
+	<td>0.0249</td>
+	<td>0.0249</td>
+	<td>0.0249</td>
+	<td>0.0102</td>
+	<td>0.0065</td>
+	<td>0.0059</td>
+	<td>0.0065</td>
+	<td>0.0067</td>
+	<td>0.0079</td>
+  </tr>
+  <tr>
+    <td>INPREM<sub>b-</sub></td>
+	<td>0.4815</td>
+	<td>0.5143</td>
+	<td>0.5143</td>
+	<td>0.5143</td>
+	<td>0.5143</td>
+	<td>0.5143</td>
+	<td>0.4146</td>
+	<td>0.2629</td>
+	<td>0.2321</td>
+	<td>0.2270</td>
+	<td>0.2264</td>
+	<td>0.2263</td>
+  </tr>
+  <tr>
+    <td>INPREM<sub>o-</sub></td>
+	<td>0.5393</td>
+	<td>0.5409</td>
+	<td>0.5409</td>
+	<td>0.5409</td>
+	<td>0.5409</td>
+	<td>0.5409</td>
+	<td>0.3689</td>
+	<td>0.2228</td>
+	<td>0.1987</td>
+	<td>0.1948</td>
+	<td>0.1943</td>
+	<td>0.1945</td>
+  </tr>
+  <tr>
+    <td>INPREM<sub>s-</sub></td>
+	<td>0.4817</td>
+	<td>0.5185</td>
+	<td>0.5185</td>
+	<td>0.5185</td>
+	<td>0.5185</td>
+	<td>0.5185</td>
+	<td>0.4117</td>
+	<td>0.2641</td>
+	<td>0.2337</td>
+	<td>0.2286</td>
+	<td>0.2280</td>
+	<td>0.2279</td>
+  </tr>
+</table>
