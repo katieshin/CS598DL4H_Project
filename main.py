@@ -51,8 +51,8 @@ def collate_fn(data, **kwargs):
     max_num_categories = kwargs['max_num_categories']
     category2idx = kwargs['category2idx']
 
-    x = torch.zeros((num_patients, max_num_visits, max_num_codes), dtype=torch.long)
-    rev_x = torch.zeros((num_patients, max_num_visits, max_num_codes), dtype=torch.long)
+    x = torch.zeros((num_patients, max_num_visits, max_num_codes), dtype=torch.float)
+    rev_x = torch.zeros((num_patients, max_num_visits, max_num_codes), dtype=torch.float)
     masks = torch.zeros((num_patients, max_num_visits, max_num_codes), dtype=torch.bool)
     rev_masks = torch.zeros((num_patients, max_num_visits, max_num_codes), dtype=torch.bool)
     y = torch.zeros((num_patients, len(category2idx)), dtype=torch.float)
@@ -135,13 +135,19 @@ def save_model(params, model):
     torch.save(model.state_dict(), os.path.join(model_dir, f'{params["model"]}.pt'))
 
 
-def eval_model(model, val_loader):
+def eval_model(model, val_loader, params):
+    cutoff = len(params['category2idx'])
+
     y_pred = torch.FloatTensor()
     y_true = torch.FloatTensor()
     model.eval()
     for x, masks, rev_x, rev_masks, y in val_loader:
         y_hat = model(x, masks, rev_x, rev_masks)
         # y_hat = (y_hat > 0.5).int()
+        if params['model'] in ['INPREM', 'INPREM_b', 'INPREM_s', 'INPREM_o']:
+            y_hat = y_hat[:, :cutoff]
+            # print('using cutoff')
+        # print(y.shape, y_hat.shape)
         y_pred = torch.cat((y_pred, y_hat.detach().to('cpu')), dim=0)
         y_true = torch.cat((y_true, y.detach().to('cpu')), dim=0)
 
@@ -200,7 +206,7 @@ def train(model, train_loader, val_loader, n_epochs, params):
             save_model(params, model)
         prev_loss = train_loss
         print('Epoch: {} \t Training Loss: {:.6f}'.format(epoch + 1, train_loss))
-        roc_auc, visit_lvl, code_lvl = eval_model(model, val_loader)
+        roc_auc, visit_lvl, code_lvl = eval_model(model, val_loader, params)
         print('Epoch: {} \t Validation roc_auc: {:.2f}, visit_lvl: {:.4f}, code_lvl: {:.4f}'.format(epoch + 1, roc_auc,
                                                                                                     visit_lvl,
                                                                                                     code_lvl))
@@ -212,15 +218,22 @@ def train(model, train_loader, val_loader, n_epochs, params):
     return
 
 
-def test(model, test_loader):
+def test(model, test_loader, params):
+    cutoff = len(params['category2idx'])
+
     y_pred = torch.FloatTensor()
     y_true = torch.FloatTensor()
     model.eval()
     for x, masks, rev_x, rev_masks, y in test_loader:
         y_hat = model(x, masks, rev_x, rev_masks)
         # y_hat = (y_hat > 0.5).int()
+        if params['model'] in ['INPREM', 'INPREM_b', 'INPREM_s', 'INPREM_o']:
+            y_hat = y_hat[:, :cutoff]
+            # print('using cutoff')
+        # print(y.shape, y_hat.shape)
         y_pred = torch.cat((y_pred, y_hat.detach().to('cpu')), dim=0)
         y_true = torch.cat((y_true, y.detach().to('cpu')), dim=0)
+
     roc_auc = roc_auc_score(y_true, y_pred, multi_class='ovr', average='micro')
 
     visits = []
@@ -290,7 +303,7 @@ if __name__ == '__main__':
 
         max_visits = params['max_num_visits']
         input_dim = params['max_num_codes']
-        output_dim = len(dataset.category2idx) if not params['cap_uncertainty'] else int(len(dataset.category2idx) / 2)
+        output_dim = len(dataset.category2idx)
         model = Inprem(params['task'], input_dim, output_dim, params['emb_dim'], max_visits,
                        params['n_depth'], params['n_head'], params['d_k'], params['d_v'], params['d_inner'],
                        params['cap_uncertainty'], params['drop_rate'], False, params['dp'], params['dvp'],
@@ -309,7 +322,7 @@ if __name__ == '__main__':
     model.load_state_dict(torch.load(model_path, map_location=torch.device(device)))
 
     test_start = time.time()
-    roc_auc, visit_prec, code_acc = test(model, test_loader)
+    roc_auc, visit_prec, code_acc = test(model, test_loader, params)
     print('Test roc_auc: {:.4f}'.format(roc_auc))
     visit_str = ' '.join(['{:.4f}@{}'.format(v, k) for k, v in visit_prec])
     print('Test visit-level precision@k: {}'.format(visit_str))

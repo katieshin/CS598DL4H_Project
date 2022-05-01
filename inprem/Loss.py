@@ -35,15 +35,17 @@ class UncertaintyLoss(nn.Module):
         self.C = C
 
     def forward(self, output, label):
-        std = torch.sqrt(output[:, self.C:])
+        std = torch.sqrt(output[:, self.C:]) + 1e-10
         pred = output[:, :self.C]
+
         dist = distributions.Normal(loc=torch.zeros_like(std), scale=std)
-        one_hot_label = torch.zeros(std.shape[0], self.C).scatter_(1, label.unsqueeze(1).cpu(), 1)
+        one_hot_label = torch.zeros(std.shape[0], self.C).scatter_(1, label.long().cpu(), 1)
         if std.is_cuda:
             one_hot_label = one_hot_label.cuda()
         loss = None
         for t in range(self.T):
             std_sample = torch.transpose(dist.sample(torch.Size([self.C])), 0, 1).squeeze(2)
+            std_sample = torch.sum(std_sample, 2)
             distorted_logit = pred + std_sample
             true_logit = torch.sum(distorted_logit * one_hot_label, 1)
 
@@ -51,7 +53,6 @@ class UncertaintyLoss(nn.Module):
                 loss = torch.exp(true_logit - torch.log(torch.sum(torch.exp(distorted_logit), dim=1)))
             else:
                 loss = loss + torch.exp(true_logit - torch.log(torch.sum(torch.exp(distorted_logit), dim=1)))
-
         return torch.mean(-torch.log(loss / self.T))
 
 

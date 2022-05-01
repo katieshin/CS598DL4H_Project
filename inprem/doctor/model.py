@@ -106,7 +106,7 @@ class Inprem(nn.Module):
             variance_dim = 1
             if task == 'diagnoses':
                 variance_dim = out_dim
-                out_dim = out_dim * 2
+                # out_dim = out_dim * 2
             self.variance = nn.Linear(emb_dim, variance_dim)
             init.xavier_normal_(self.variance.weight)
 
@@ -116,6 +116,7 @@ class Inprem(nn.Module):
 
         self.dropout = nn.Dropout(p=mcDrop)
         self.sparsemax = Sparsemax(dim=1)
+        self.softmax = nn.Softmax(dim=1)
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, seq, mask, rev_x, rev_masks):
@@ -180,15 +181,17 @@ class Inprem(nn.Module):
         logit = self.predict(context)
 
         if self.analysis:
-            variance = self.variance(context)
+            variance = F.softmax(self.variance(context), dim=1)
+            # variance = self.variance(context)
             variance = variance * variance
-            logit = torch.cat((logit, variance), 1)
+            logit = torch.cat((self.sigmoid(logit), variance), 1)
             return seq.cpu().data.numpy(), position.cpu().data.numpy(), logit.cpu().data.numpy(), \
                    alpha.cpu().data.numpy(), beta.cpu().data.numpy(), emb.cpu().data.numpy(), \
                    position_emb.cpu().data.numpy(), mask.cpu().data.numpy()
 
         if self.capture_uncertainty:
-            variance = F.softplus(self.variance(context))
+            variance = F.softmax(self.variance(context), dim=1)
+            # variance = self.variance(context)
             variance = variance * variance
             return torch.cat((self.sigmoid(logit), variance), 1)
         return self.sigmoid(logit)
