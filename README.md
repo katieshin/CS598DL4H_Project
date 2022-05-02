@@ -33,7 +33,8 @@ pip3 install torch --extra-index-url https://download.pytorch.org/whl/cu113
 
 ## Training
 
-There is an option to use pre-trained models (available for all models including INPREM above) or train the model from scratch. This is set by specifying an argument when running `main.py`.
+When running `main.py` to train the models you must use the `--train` argument along with the model specification, `--model {model}`. Replace `{model}` with one of the available models. 
+The default arguments are what we used to train the model in our experiments.
 
 The following are available arguments that can be set:
 
@@ -66,21 +67,31 @@ The following are available arguments that can be set:
 
 A sample command that can be run is:
 ```commandline
-python3 main.py --model=CNN --train=True
+python3 main.py --model=RNN --train
 ```
 
 ## Evaluation
+All models will run the evaluation step after training is complete.
+To evaluate a pre-trained model, run:
+```commandline
+python3 main.py --model=RNN
+```
 
-Running `main.py` will output the following evaluation results:
+A model evaluation will result in the following metrics:
 - ROC AUC (Area Under the Receiver Operating Characteristic Curve)
-- Visit-level precision for 30 visits with increments of 5
-- Code-level accuracy for 30 iterations with increments of 5
-- Time to test the model
-- Total time to run
+- Visit-level precision @ k for k={5, 10, 15, 20, 25, 30}
+- Code-level accuracy @ k for k={5, 10, 15, 20, 25, 30}
+- Time taken to test the model
+- Total time taken to run the entire script
+
+
+## Pre-trained Models
+Pre-trained models are avialable in the saved_models folder of this repository. You can specify a directory to load additional pre-trained models from by specifying the `--save_model_dir` parameter flag.
+
+All models were trained using the default parameter flags.
 
 ## Results
 
-	
 <table>
   <tr>
     <th></th>
