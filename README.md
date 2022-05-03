@@ -6,7 +6,7 @@ As part of UIUC CS598 Deep Learning for Healthcare course, we have decided to re
 
 ### Paper Details
 
-The paper implements the INPREM model and compares it to currently widely-used models, such as:
+The paper implements the INPREM model (and its variations) and compares it to currently widely-used models, such as:
 - CNN
 - RNN
 - RNN+
@@ -40,7 +40,7 @@ The following are available arguments that can be set:
 
 - `--model`: type of model to run
   - default: `INPREM`
-  - choices: `CNN, RNN, RETAIN, DIPOLE, RNNplus, INPREM`
+  - choices: `CNN, RNN, RETAIN, DIPOLE, RNNplus, INPREM, INPREM_b, INPREM_s, INPREM_o`
 - `--emb_dim`: size of medical variable (or code) embedding
   - default: 256
 - `--train`: boolean to train the model or use the pre-trained model
